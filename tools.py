@@ -22,9 +22,10 @@ class ToolResult:
 class ToolDef:
     name: str
     description: str
-    identity: str  # "user" or "bot"
+    identity: str  # "user", "bot", or "" for non-lark tools
     claude_schema: dict[str, Any]
-    build_command: Callable[[dict], list[str]]
+    build_command: Callable[[dict], list[str]] | None = None
+    python_func: Callable[[dict], str] | None = None
 
 
 TOOL_REGISTRY: dict[str, ToolDef] = {}
@@ -50,6 +51,43 @@ def execute_tool(request_id: str, tool_name: str, tool_input: dict) -> ToolResul
     if hook_result.skip:
         return ToolResult(output=hook_result.override_output, success=True, cached=True)
 
+    if tool_def.python_func:
+        return _execute_python_tool(request_id, tool_def, tool_input, ctx)
+    return _execute_cli_tool(request_id, tool_def, tool_input, ctx)
+
+
+def _execute_python_tool(
+    request_id: str, tool_def: ToolDef, tool_input: dict, ctx: HookContext,
+) -> ToolResult:
+    start = time.monotonic()
+    try:
+        output = tool_def.python_func(tool_input)
+        duration_ms = (time.monotonic() - start) * 1000
+        logger.log_tool_call(
+            request_id, tool_def.name, tool_input,
+            [f"python:{tool_def.name}"], _FakeProc(0, output, ""), duration_ms,
+        )
+        hooks.fire("after_tool", ctx.with_result(_FakeProc(0, output, ""), duration_ms))
+        return ToolResult(output=output, success=True)
+    except Exception as e:
+        duration_ms = (time.monotonic() - start) * 1000
+        error_msg = f"{type(e).__name__}: {e}"
+        logger.log_error(request_id, tool_def.name, type(e).__name__, stderr=error_msg)
+        hooks.fire("on_error", ctx.with_error(type(e).__name__))
+        return ToolResult(output=error_msg, success=False)
+
+
+class _FakeProc:
+    """Mimics subprocess.CompletedProcess for logger compatibility."""
+    def __init__(self, returncode: int, stdout: str, stderr: str):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _execute_cli_tool(
+    request_id: str, tool_def: ToolDef, tool_input: dict, ctx: HookContext,
+) -> ToolResult:
     cmd = tool_def.build_command(tool_input)
     if ctx.extra_flags:
         cmd.extend(ctx.extra_flags)
@@ -433,17 +471,4 @@ register(ToolDef(
     ],
 ))
 
-# --- Web Fetch (non-lark-cli) ---
-
-register(ToolDef(
-    name="web_fetch",
-    description="获取外部网页内容",
-    identity="",
-    claude_schema=_schema("web_fetch", "Fetch content from an external URL", {
-        "url": {"type": "string", "description": "URL to fetch"},
-    }, ["url"]),
-    build_command=lambda i: [
-        "python3", "-c",
-        f"import urllib.request,sys;r=urllib.request.urlopen('{i['url']}',timeout=15);print(r.read().decode()[:5000])",
-    ],
-))
+# --- Web tools are registered in web_tools.py ---

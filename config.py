@@ -38,6 +38,10 @@ MAX_RETRIES = int(os.getenv("MAX_RETRIES", "1"))
 MAX_AGENT_ROUNDS = int(os.getenv("MAX_AGENT_ROUNDS", "15"))
 HOOKS_CUSTOM_DIR = Path(os.getenv("HOOKS_CUSTOM_DIR", "./hooks_custom"))
 
+# --- Web Search ---
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+EXA_API_KEY = os.getenv("EXA_API_KEY", "")
+
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 

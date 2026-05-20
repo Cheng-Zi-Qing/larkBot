@@ -151,7 +151,17 @@ def write_env(values: dict):
         "MAX_AGENT_ROUNDS=15",
         "HOOKS_CUSTOM_DIR=./hooks_custom",
         "",
+        "# Web 搜索 (可选)",
     ]
+    if values.get("tavily_key"):
+        lines.append(f"TAVILY_API_KEY={values['tavily_key']}")
+    else:
+        lines.append("# TAVILY_API_KEY=")
+    if values.get("exa_key"):
+        lines.append(f"EXA_API_KEY={values['exa_key']}")
+    else:
+        lines.append("# EXA_API_KEY=")
+    lines.append("")
 
     ENV_PATH.write_text("\n".join(lines), encoding="utf-8")
 
@@ -265,6 +275,16 @@ def main():
     elif lark["configured"]:
         print("  ✗ User 身份不可用")
         print("    运行: lark-cli auth login --recommend")
+    step += 1
+
+    # [N] Web search (optional)
+    print(f"\n[{step}] Web 搜索配置 (可选，回车跳过)")
+    tavily_key = ask_input("  Tavily API Key (https://tavily.com, 回车跳过):")
+    exa_key = ask_input("  Exa API Key (https://exa.ai, 回车跳过):")
+    values["tavily_key"] = tavily_key
+    values["exa_key"] = exa_key
+    if not tavily_key and not exa_key:
+        print("  → 将使用 DuckDuckGo 免费搜索")
 
     # Write .env
     write_env(values)

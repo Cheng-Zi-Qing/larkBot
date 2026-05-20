@@ -10,6 +10,7 @@ import uuid
 import agent
 import hooks
 import logger
+import web_tools  # noqa: F401 — registers web tools
 from hooks import HookContext
 
 
