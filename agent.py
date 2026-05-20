@@ -2,15 +2,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-import anthropic
-
 import config
 import hooks
+import llm
 import logger
 from hooks import HookContext
 from tools import execute_tool, get_tool_definitions
-
-client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
 history: dict[str, list[dict]] = defaultdict(list)
 
@@ -29,22 +26,20 @@ def run(request_id: str, chat_id: str, user_message: str) -> str:
 
     hooks.fire("before_agent", HookContext(request_id=request_id, messages=messages))
 
+    client = llm.get_client()
+
     for _ in range(config.MAX_AGENT_ROUNDS):
-        response = client.messages.create(
-            model=config.CLAUDE_MODEL,
-            max_tokens=4096,
+        response = client.chat(
+            messages=messages,
             system=config.SYSTEM_PROMPT,
             tools=get_tool_definitions(),
-            messages=messages,
+            model=config.LLM_MODEL,
         )
 
-        assistant_content = response.content
-        messages.append({"role": "assistant", "content": assistant_content})
+        messages.append(client.build_assistant_message(response))
 
         if response.stop_reason == "end_turn":
-            reply_text = next(
-                (b.text for b in assistant_content if hasattr(b, "text")), ""
-            )
+            reply_text = response.text or ""
 
             hook_result = hooks.fire(
                 "on_reply",
@@ -59,16 +54,20 @@ def run(request_id: str, chat_id: str, user_message: str) -> str:
             return reply_text
 
         elif response.stop_reason == "tool_use":
-            tool_results = []
-            for block in assistant_content:
-                if block.type == "tool_use":
-                    result = execute_tool(request_id, block.name, block.input)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result.output,
-                        "is_error": not result.success,
-                    })
-            messages.append({"role": "user", "content": tool_results})
+            tool_use_results = []
+            for tc in response.tool_calls:
+                result = execute_tool(request_id, tc.name, tc.input)
+                tool_use_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tc.id,
+                    "content": result.output,
+                    "is_error": not result.success,
+                })
+
+            built = client.build_tool_results(tool_use_results)
+            if isinstance(built, list):
+                messages.extend(built)
+            else:
+                messages.append(built)
 
     return "处理轮数超限，请简化你的请求。"

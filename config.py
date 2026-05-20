@@ -1,12 +1,24 @@
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+# --- LLM Provider ---
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")  # anthropic | openai
+
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
+
+_DEFAULT_MODELS = {
+    "anthropic": "claude-sonnet-4-20250514",
+    "openai": "gpt-4o",
+}
+LLM_MODEL = os.getenv("LLM_MODEL", "") or _DEFAULT_MODELS.get(LLM_PROVIDER, "")
 
 SYSTEM_PROMPT = os.getenv(
     "SYSTEM_PROMPT",
@@ -18,12 +30,26 @@ SYSTEM_PROMPT = os.getenv(
     ),
 )
 
+# --- Bot settings ---
 MAX_HISTORY = int(os.getenv("MAX_HISTORY", "30"))
 LOG_DIR = Path(os.getenv("LOG_DIR", "./logs"))
 TOOL_TIMEOUT = int(os.getenv("TOOL_TIMEOUT", "30"))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "1"))
 MAX_AGENT_ROUNDS = int(os.getenv("MAX_AGENT_ROUNDS", "15"))
-
 HOOKS_CUSTOM_DIR = Path(os.getenv("HOOKS_CUSTOM_DIR", "./hooks_custom"))
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def validate():
+    if LLM_PROVIDER == "anthropic" and not ANTHROPIC_API_KEY:
+        print("ERROR: LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set", file=sys.stderr)
+        print("Run 'make init' to configure.", file=sys.stderr)
+        sys.exit(1)
+    if LLM_PROVIDER == "openai" and not OPENAI_API_KEY:
+        print("ERROR: LLM_PROVIDER=openai but OPENAI_API_KEY is not set", file=sys.stderr)
+        print("Run 'make init' to configure.", file=sys.stderr)
+        sys.exit(1)
+    if LLM_PROVIDER not in ("anthropic", "openai"):
+        print(f"ERROR: Unknown LLM_PROVIDER: {LLM_PROVIDER}", file=sys.stderr)
+        sys.exit(1)

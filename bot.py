@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import subprocess
 import sys
@@ -107,6 +109,8 @@ def handle_message(event: dict):
 
 
 def main():
+    import config
+    config.validate()
     hooks.load_custom_hooks()
     proc = start_event_consumer()
     print("[BOT] Listening for messages...", file=sys.stderr)
