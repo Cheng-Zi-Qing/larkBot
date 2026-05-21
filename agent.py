@@ -99,6 +99,7 @@ def _agent_loop(
     messages: list[dict],
 ) -> str:
     client = llm.get_client()
+    collected_text: list[str] = []
 
     for _ in range(config.MAX_AGENT_ROUNDS):
         response = client.chat(
@@ -112,8 +113,11 @@ def _agent_loop(
         messages.append(assistant_msg)
         memory.persist_message(session_id, "assistant", assistant_msg.get("content", ""))
 
+        if response.text:
+            collected_text.append(response.text)
+
         if response.stop_reason == "end_turn":
-            reply_text = response.text or ""
+            reply_text = "\n\n".join(collected_text)
 
             hook_result = hooks.fire(
                 "on_reply",
