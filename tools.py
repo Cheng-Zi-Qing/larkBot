@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import subprocess
 import time
 from dataclasses import dataclass
@@ -37,7 +38,12 @@ def register(tool: ToolDef):
 
 
 def get_tool_definitions() -> list[dict]:
-    return [t.claude_schema for t in TOOL_REGISTRY.values()]
+    from persona_tools import PERSONA_TOOLS
+    allowed = PERSONA_TOOLS.get(config.get_persona())
+    if allowed is None:
+        return [t.claude_schema for t in TOOL_REGISTRY.values()]
+    allowed_set = set(allowed)
+    return [t.claude_schema for t in TOOL_REGISTRY.values() if t.name in allowed_set]
 
 
 def execute_tool(request_id: str, tool_name: str, tool_input: dict) -> ToolResult:
@@ -61,7 +67,12 @@ def _execute_python_tool(
 ) -> ToolResult:
     start = time.monotonic()
     try:
-        output = tool_def.python_func(tool_input)
+        context = {"request_id": request_id, "chat_id": ctx.chat_id, "persona": config.get_persona()}
+        sig = inspect.signature(tool_def.python_func)
+        if len(sig.parameters) >= 2:
+            output = tool_def.python_func(tool_input, context)
+        else:
+            output = tool_def.python_func(tool_input)
         duration_ms = (time.monotonic() - start) * 1000
         logger.log_tool_call(
             request_id, tool_def.name, tool_input,
