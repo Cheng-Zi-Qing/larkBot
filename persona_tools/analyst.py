@@ -114,6 +114,7 @@ register(ToolDef(
     name="market_scanner",
     description="市场机会扫描（融资+新品+痛点三角验证）",
     identity="",
+    category="research",
     claude_schema=_schema(
         "market_scanner",
         "Scan a market for opportunities by triangulating funding signals, new product launches, "
@@ -237,6 +238,7 @@ register(ToolDef(
     name="acquisition_research",
     description="拓客策略研究（渠道+打法+冷启动）",
     identity="",
+    category="research",
     claude_schema=_schema(
         "acquisition_research",
         "Research customer acquisition strategies. Analyzes competitor growth tactics, "

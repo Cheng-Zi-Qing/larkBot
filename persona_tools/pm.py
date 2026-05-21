@@ -92,6 +92,7 @@ register(ToolDef(
     name="competitive_landscape",
     description="结构化竞品分析",
     identity="",
+    category="research",
     claude_schema=_schema(
         "competitive_landscape",
         "Research and generate a structured competitive analysis. "
@@ -185,6 +186,7 @@ register(ToolDef(
     name="generate_prd",
     description="生成产品需求文档（PRD）",
     identity="",
+    category="research",
     claude_schema=_schema(
         "generate_prd",
         "Generate a structured PRD by gathering internal docs, team discussions, memory, and market references. "

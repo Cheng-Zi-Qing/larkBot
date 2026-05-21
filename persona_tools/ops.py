@@ -112,6 +112,7 @@ register(ToolDef(
     name="content_research_brief",
     description="生成内容策划 Brief（趋势+受众+竞品）",
     identity="",
+    category="research",
     claude_schema=_schema(
         "content_research_brief",
         "Research and generate a content planning brief. Analyzes trending content, "
@@ -237,6 +238,7 @@ register(ToolDef(
     name="campaign_tracker",
     description="活动跟踪与状态报告",
     identity="",
+    category="research",
     claude_schema=_schema(
         "campaign_tracker",
         "Track campaign progress. 'create' extracts tasks from docs/messages into a Bitable. "
