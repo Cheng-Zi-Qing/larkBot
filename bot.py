@@ -119,7 +119,10 @@ def handle_message(event: dict):
         send_reply(chat_id, reply, message_id)
     except Exception as e:
         logger.log_error(request_id, "bot", "AgentError", stderr=str(e))
-        send_reply(chat_id, f"处理失败，请稍后再试。({type(e).__name__})")
+        if "rate" in type(e).__name__.lower():
+            send_reply(chat_id, "当前请求太频繁，请稍等片刻再试。")
+        else:
+            send_reply(chat_id, f"处理失败，请稍后再试。({type(e).__name__})")
 
 
 def main():

@@ -1,10 +1,29 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import config
+
+_MAX_RETRIES = 3
+_BASE_DELAY = 2
+
+
+def _retry_on_rate_limit(func):
+    def wrapper(*args, **kwargs):
+        for attempt in range(_MAX_RETRIES):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if "rate" not in type(e).__name__.lower() and "429" not in str(e):
+                    raise
+                if attempt == _MAX_RETRIES - 1:
+                    raise
+                delay = _BASE_DELAY * (2 ** attempt)
+                time.sleep(delay)
+    return wrapper
 
 
 @dataclass
@@ -93,6 +112,7 @@ class AnthropicClient:
             kwargs["base_url"] = config.ANTHROPIC_BASE_URL
         self._client = anthropic.Anthropic(**kwargs)
 
+    @_retry_on_rate_limit
     def chat(
         self,
         messages: list[dict],
@@ -139,6 +159,7 @@ class OpenAIClient:
             kwargs["base_url"] = config.OPENAI_BASE_URL
         self._client = OpenAI(**kwargs)
 
+    @_retry_on_rate_limit
     def chat(
         self,
         messages: list[dict],
