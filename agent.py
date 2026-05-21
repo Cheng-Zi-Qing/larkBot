@@ -78,6 +78,25 @@ def run(request_id: str, chat_id: str, user_message: str) -> str:
 
     hooks.fire("before_agent", HookContext(request_id=request_id, messages=messages))
 
+    try:
+        return _agent_loop(request_id, chat_id, session_id, user_message, messages)
+    except Exception as e:
+        if "bad" not in type(e).__name__.lower():
+            raise
+        logger.log_error(request_id, "agent", "HistoryCorrupted", stderr=str(e))
+        with _history_lock:
+            history[chat_id] = []
+        messages = [{"role": "user", "content": user_message}]
+        return _agent_loop(request_id, chat_id, session_id, user_message, messages)
+
+
+def _agent_loop(
+    request_id: str,
+    chat_id: str,
+    session_id: str,
+    user_message: str,
+    messages: list[dict],
+) -> str:
     client = llm.get_client()
 
     for _ in range(config.MAX_AGENT_ROUNDS):

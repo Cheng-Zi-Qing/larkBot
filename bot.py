@@ -123,12 +123,14 @@ def handle_message(event: dict):
         send_reply(chat_id, reply, message_id)
     except Exception as e:
         logger.log_error(request_id, "bot", "AgentError", stderr=str(e))
-        if "rate" in type(e).__name__.lower():
+        err_name = type(e).__name__
+        err_detail = str(e)[:200]
+        if "rate" in err_name.lower():
             send_reply(chat_id, "当前请求太频繁，请稍等片刻再试。")
-        elif "timeout" in type(e).__name__.lower():
+        elif "timeout" in err_name.lower():
             send_reply(chat_id, "请求超时了，请稍后再试。")
         else:
-            send_reply(chat_id, f"处理失败，请稍后再试。({type(e).__name__})")
+            send_reply(chat_id, f"处理失败（{err_name}）：{err_detail}")
 
 
 _executor = ThreadPoolExecutor(max_workers=4)
