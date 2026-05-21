@@ -35,6 +35,7 @@ TOOL_REGISTRY: dict[str, ToolDef] = {}
 
 AUDIT_TOOLS: dict[str, str] = {
     "create_doc": "create",
+    "edit_doc": "update",
     "write_table": "create",
     "create_event": "create",
     "create_task": "create",
@@ -356,6 +357,32 @@ register(ToolDef(
         "lark-cli", "docs", "+fetch", "--as", "user",
         "--api-version", "v2", "--doc", i["doc"],
     ],
+))
+
+register(ToolDef(
+    name="edit_doc",
+    description="编辑已有飞书文档（追加、覆盖或替换指定内容）",
+    identity="user",
+    claude_schema=_schema("edit_doc", "Edit an existing Lark document. Modes: append (add to end), overwrite (replace all content), replace_all (find-and-replace by selection locator).", {
+        "doc": {"type": "string", "description": "Document ID or URL"},
+        "content": {"type": "string", "description": "New content in markdown"},
+        "mode": {
+            "type": "string",
+            "description": "Edit mode: append | overwrite | replace_all",
+            "enum": ["append", "overwrite", "replace_all"],
+        },
+        "new_title": {"type": "string", "description": "Optional: also update the document title"},
+        "selection": {"type": "string", "description": "For replace_all: locate content to replace, e.g. '## Section' (title) or 'start...end' (range)"},
+    }, ["doc", "content", "mode"]),
+    build_command=lambda i: [
+        "lark-cli", "docs", "+update", "--as", "user",
+        "--api-version", "v2",
+        "--doc", i["doc"],
+        "--mode", i["mode"],
+        "--markdown", i["content"],
+    ] + (["--new-title", i["new_title"]] if i.get("new_title") else [])
+      + (["--selection-by-title", i["selection"]] if i.get("selection") and not ("..." in i.get("selection", "")) else [])
+      + (["--selection-with-ellipsis", i["selection"]] if i.get("selection") and "..." in i.get("selection", "") else []),
 ))
 
 register(ToolDef(

@@ -27,6 +27,7 @@ TOOL_LABELS: dict[str, str] = {
     "reply_message": "回复消息",
     "search_chats": "搜索会话",
     "create_doc": "创建文档",
+    "edit_doc": "编辑文档",
     "read_doc": "读取文档",
     "search_docs": "搜索文档",
     "read_table": "读取多维表格",

@@ -6,7 +6,7 @@ PERSONA_TOOLS: dict[str, list[str] | None] = {
     "assistant": None,
     "pm": [
         "search_messages", "search_chats",
-        "create_doc", "read_doc", "search_docs",
+        "create_doc", "edit_doc", "read_doc", "search_docs",
         "read_table", "query_table",
         "get_agenda",
         "get_my_tasks", "create_task", "search_tasks",
@@ -25,7 +25,7 @@ PERSONA_TOOLS: dict[str, list[str] | None] = {
     ],
     "ops": [
         "search_messages", "search_chats",
-        "create_doc", "read_doc", "search_docs",
+        "create_doc", "edit_doc", "read_doc", "search_docs",
         "read_table", "write_table", "query_table", "read_sheet",
         "get_agenda",
         "get_my_tasks", "create_task", "search_tasks",
