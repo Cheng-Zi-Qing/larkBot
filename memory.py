@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sqlite3
+import threading
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -35,6 +37,7 @@ TOOL_TAG_MAP = {
 # --- Database ---
 
 _db: sqlite3.Connection | None = None
+_db_lock = threading.Lock()
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -101,9 +104,44 @@ def _get_db() -> sqlite3.Connection:
     _db = sqlite3.connect(config.DB_PATH, check_same_thread=False)
     _db.execute("PRAGMA journal_mode=WAL")
     _db.execute("PRAGMA foreign_keys=ON")
-    _db.executescript(_SCHEMA_SQL)
+    try:
+        _db.execute("PRAGMA integrity_check")
+        _db.executescript(_SCHEMA_SQL)
+    except sqlite3.DatabaseError:
+        _db.close()
+        _db = None
+        _rebuild_db()
+        _db = sqlite3.connect(config.DB_PATH, check_same_thread=False)
+        _db.execute("PRAGMA journal_mode=WAL")
+        _db.execute("PRAGMA foreign_keys=ON")
+        _db.executescript(_SCHEMA_SQL)
     _db.commit()
     return _db
+
+
+def _rebuild_db():
+    db_path = Path(config.DB_PATH)
+    if db_path.exists():
+        backup = db_path.with_suffix(f".corrupt.{int(time.time())}.db")
+        shutil.move(str(db_path), str(backup))
+        logger.log_error("memory", "db_rebuild", "DatabaseCorrupt",
+                         stderr=f"Backed up corrupt DB to {backup.name}")
+    for suffix in ("-wal", "-shm"):
+        wal = db_path.with_name(db_path.name + suffix)
+        if wal.exists():
+            wal.unlink()
+
+
+def _reset_and_reconnect():
+    global _db
+    if _db is not None:
+        try:
+            _db.close()
+        except Exception:
+            pass
+        _db = None
+    _rebuild_db()
+    return _get_db()
 
 
 # --- Session state (single user, single process) ---
@@ -122,12 +160,13 @@ def _create_session() -> str:
     global _current_session_id, _session_start, _session_base_tags
     sid = _gen_session_id()
     now = int(time.time())
-    db = _get_db()
-    db.execute(
-        "INSERT OR REPLACE INTO sessions (session_id, start_time) VALUES (?, ?)",
-        (sid, now),
-    )
-    db.commit()
+    with _db_lock:
+        db = _get_db()
+        db.execute(
+            "INSERT OR REPLACE INTO sessions (session_id, start_time) VALUES (?, ?)",
+            (sid, now),
+        )
+        db.commit()
     _current_session_id = sid
     _session_start = now
     _session_base_tags = set()
@@ -136,30 +175,42 @@ def _create_session() -> str:
 
 def get_current_session_id() -> str:
     if _current_session_id is None:
-        _recover_or_create()
+        try:
+            _recover_or_create()
+        except sqlite3.DatabaseError:
+            _reset_and_reconnect()
+            _recover_or_create()
     return _current_session_id
 
 
 def check_session_boundary() -> bool:
     global _current_session_id
     if _current_session_id is None:
-        _recover_or_create()
+        try:
+            _recover_or_create()
+        except sqlite3.DatabaseError:
+            _reset_and_reconnect()
+            _recover_or_create()
         return False
 
     now = int(time.time())
     if now - _session_start > _SESSION_TIMEOUT:
-        _close_session(_current_session_id)
+        try:
+            _close_session(_current_session_id)
+        except sqlite3.DatabaseError:
+            _reset_and_reconnect()
         _create_session()
         return True
     return False
 
 
 def _recover_or_create():
-    db = _get_db()
-    row = db.execute(
-        "SELECT session_id, start_time, base_tags FROM sessions "
-        "WHERE end_time IS NULL ORDER BY start_time DESC LIMIT 1"
-    ).fetchone()
+    with _db_lock:
+        db = _get_db()
+        row = db.execute(
+            "SELECT session_id, start_time, base_tags FROM sessions "
+            "WHERE end_time IS NULL ORDER BY start_time DESC LIMIT 1"
+        ).fetchone()
 
     if row is None:
         _create_session()
@@ -213,26 +264,35 @@ def _serialize_content(content: Any) -> str:
 
 
 def persist_message(session_id: str, role: str, content: Any):
-    db = _get_db()
     serialized = _serialize_content(content)
     now = int(time.time())
-    db.execute(
-        "INSERT INTO messages (session_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-        (session_id, role, serialized, now),
-    )
-    db.execute(
-        "UPDATE sessions SET message_count = message_count + 1 WHERE session_id = ?",
-        (session_id,),
-    )
-    db.commit()
+    try:
+        with _db_lock:
+            db = _get_db()
+            db.execute(
+                "INSERT INTO messages (session_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+                (session_id, role, serialized, now),
+            )
+            db.execute(
+                "UPDATE sessions SET message_count = message_count + 1 WHERE session_id = ?",
+                (session_id,),
+            )
+            db.commit()
+    except sqlite3.DatabaseError:
+        _reset_and_reconnect()
 
 
 def load_session_messages(session_id: str) -> list[dict]:
-    db = _get_db()
-    rows = db.execute(
-        "SELECT role, content FROM messages WHERE session_id = ? ORDER BY id",
-        (session_id,),
-    ).fetchall()
+    try:
+        with _db_lock:
+            db = _get_db()
+            rows = db.execute(
+                "SELECT role, content FROM messages WHERE session_id = ? ORDER BY id",
+                (session_id,),
+            ).fetchall()
+    except sqlite3.DatabaseError:
+        _reset_and_reconnect()
+        return []
     messages = []
     for role, content_str in rows:
         try:
@@ -343,32 +403,34 @@ def _parse_llm_json(text: str) -> dict | None:
 
 
 def _close_session(session_id: str):
-    db = _get_db()
     messages = load_session_messages(session_id)
     now = int(time.time())
 
     if len(messages) < 4:
-        db.execute(
-            "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
-            (now, "短对话", json.dumps(sorted(_session_base_tags), ensure_ascii=False), session_id),
-        )
-        db.commit()
+        with _db_lock:
+            db = _get_db()
+            db.execute(
+                "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
+                (now, "短对话", json.dumps(sorted(_session_base_tags), ensure_ascii=False), session_id),
+            )
+            db.commit()
         return
 
     compressed = _compress_history(messages)
     if not compressed.strip():
-        db.execute(
-            "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
-            (now, "空对话", json.dumps(sorted(_session_base_tags), ensure_ascii=False), session_id),
-        )
-        db.commit()
+        with _db_lock:
+            db = _get_db()
+            db.execute(
+                "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
+                (now, "空对话", json.dumps(sorted(_session_base_tags), ensure_ascii=False), session_id),
+            )
+            db.commit()
         return
 
     _run_summarization(compressed, session_id, now)
 
 
 def _run_summarization(compressed: str, session_id: str, now: int):
-    db = _get_db()
     base_tags_json = json.dumps(sorted(_session_base_tags), ensure_ascii=False)
 
     try:
@@ -384,19 +446,23 @@ def _run_summarization(compressed: str, session_id: str, now: int):
         parsed = _parse_llm_json(response.text or "")
     except Exception as e:
         logger.log_error("memory", "summarization", type(e).__name__, stderr=str(e))
-        db.execute(
-            "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
-            (now, "[摘要生成失败]", base_tags_json, session_id),
-        )
-        db.commit()
+        with _db_lock:
+            db = _get_db()
+            db.execute(
+                "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
+                (now, "[摘要生成失败]", base_tags_json, session_id),
+            )
+            db.commit()
         return
 
     if not parsed:
-        db.execute(
-            "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
-            (now, compressed[:200], base_tags_json, session_id),
-        )
-        db.commit()
+        with _db_lock:
+            db = _get_db()
+            db.execute(
+                "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
+                (now, compressed[:200], base_tags_json, session_id),
+            )
+            db.commit()
         return
 
     summary = parsed.get("summary", "")[:500]
@@ -407,21 +473,23 @@ def _run_summarization(compressed: str, session_id: str, now: int):
     entity = ", ".join(tags.get("entity", [])) if isinstance(tags.get("entity"), list) else str(tags.get("entity", ""))
     extra = ", ".join(tags.get("extra", [])) if isinstance(tags.get("extra"), list) else str(tags.get("extra", ""))
 
-    db.execute(
-        "UPDATE sessions SET end_time=?, summary=?, base_tags=?, people=?, topic=?, action=?, entity=?, extra_tags=? "
-        "WHERE session_id=?",
-        (now, summary, base_tags_json, people, topic, action, entity, extra, session_id),
-    )
+    with _db_lock:
+        db = _get_db()
+        db.execute(
+            "UPDATE sessions SET end_time=?, summary=?, base_tags=?, people=?, topic=?, action=?, entity=?, extra_tags=? "
+            "WHERE session_id=?",
+            (now, summary, base_tags_json, people, topic, action, entity, extra, session_id),
+        )
 
-    facts = parsed.get("facts", [])
-    for fact in facts:
-        if isinstance(fact, str) and fact.strip():
-            db.execute(
-                "INSERT INTO facts (fact_text, source_session, created_at) VALUES (?, ?, ?)",
-                (fact.strip(), session_id, now),
-            )
+        facts = parsed.get("facts", [])
+        for fact in facts:
+            if isinstance(fact, str) and fact.strip():
+                db.execute(
+                    "INSERT INTO facts (fact_text, source_session, created_at) VALUES (?, ?, ?)",
+                    (fact.strip(), session_id, now),
+                )
 
-    db.commit()
+        db.commit()
 
 
 # --- recall_memory tool ---
@@ -439,19 +507,24 @@ def _escape_fts(term: str) -> str:
 
 
 def recall_memory(inputs: dict) -> str:
-    session_id = inputs.get("session_id")
-    if session_id:
-        return _recall_expand(session_id)
-    return _recall_search(inputs)
+    try:
+        session_id = inputs.get("session_id")
+        if session_id:
+            return _recall_expand(session_id)
+        return _recall_search(inputs)
+    except sqlite3.DatabaseError:
+        _reset_and_reconnect()
+        return "记忆数据库已重建，历史记忆已丢失。请重试。"
 
 
 def _recall_expand(session_id: str) -> str:
-    db = _get_db()
-    row = db.execute(
-        "SELECT summary, base_tags, people, topic, action, entity, extra_tags, start_time, end_time "
-        "FROM sessions WHERE session_id = ?",
-        (session_id,),
-    ).fetchone()
+    with _db_lock:
+        db = _get_db()
+        row = db.execute(
+            "SELECT summary, base_tags, people, topic, action, entity, extra_tags, start_time, end_time "
+            "FROM sessions WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
 
     if not row:
         return f"未找到 session: {session_id}"
@@ -498,7 +571,6 @@ def _recall_expand(session_id: str) -> str:
 
 
 def _recall_search(inputs: dict) -> str:
-    db = _get_db()
     now = int(time.time())
 
     time_range = inputs.get("time_range", "all")
@@ -518,24 +590,27 @@ def _recall_search(inputs: dict) -> str:
 
     results_parts = []
 
-    if fts_terms:
-        fts_query = " OR ".join(fts_terms)
-        rows = db.execute(
-            "SELECT s.session_id, s.start_time, s.end_time, s.summary, "
-            "s.base_tags, s.people, s.topic, s.action, s.entity, s.extra_tags, rank "
-            "FROM sessions_fts f JOIN sessions s ON f.rowid = s.rowid "
-            "WHERE sessions_fts MATCH ? AND s.start_time >= ? AND s.end_time IS NOT NULL "
-            "ORDER BY rank LIMIT 5",
-            (fts_query, min_time),
-        ).fetchall()
-    else:
-        rows = db.execute(
-            "SELECT session_id, start_time, end_time, summary, "
-            "base_tags, people, topic, action, entity, extra_tags, 0 "
-            "FROM sessions WHERE end_time IS NOT NULL AND start_time >= ? "
-            "ORDER BY start_time DESC LIMIT 5",
-            (min_time,),
-        ).fetchall()
+    with _db_lock:
+        db = _get_db()
+
+        if fts_terms:
+            fts_query = " OR ".join(fts_terms)
+            rows = db.execute(
+                "SELECT s.session_id, s.start_time, s.end_time, s.summary, "
+                "s.base_tags, s.people, s.topic, s.action, s.entity, s.extra_tags, rank "
+                "FROM sessions_fts f JOIN sessions s ON f.rowid = s.rowid "
+                "WHERE sessions_fts MATCH ? AND s.start_time >= ? AND s.end_time IS NOT NULL "
+                "ORDER BY rank LIMIT 5",
+                (fts_query, min_time),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                "SELECT session_id, start_time, end_time, summary, "
+                "base_tags, people, topic, action, entity, extra_tags, 0 "
+                "FROM sessions WHERE end_time IS NOT NULL AND start_time >= ? "
+                "ORDER BY start_time DESC LIMIT 5",
+                (min_time,),
+            ).fetchall()
 
     if rows:
         results_parts.append(f"## 相关历史 Session (共 {len(rows)} 条)\n")
@@ -563,12 +638,14 @@ def _recall_search(inputs: dict) -> str:
             if val:
                 fact_terms.append(_escape_fts(val))
         fact_query = " OR ".join(fact_terms)
-        fact_rows = db.execute(
-            "SELECT f2.fact_text, f2.source_session, f2.created_at "
-            "FROM facts_fts f JOIN facts f2 ON f.rowid = f2.id "
-            "WHERE facts_fts MATCH ? ORDER BY rank LIMIT 5",
-            (fact_query,),
-        ).fetchall()
+        with _db_lock:
+            db = _get_db()
+            fact_rows = db.execute(
+                "SELECT f2.fact_text, f2.source_session, f2.created_at "
+                "FROM facts_fts f JOIN facts f2 ON f.rowid = f2.id "
+                "WHERE facts_fts MATCH ? ORDER BY rank LIMIT 5",
+                (fact_query,),
+            ).fetchall()
 
         if fact_rows:
             results_parts.append(f"## 相关事实 (共 {len(fact_rows)} 条)\n")
