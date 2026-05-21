@@ -11,6 +11,7 @@ import agent
 import hooks
 import logger
 import web_tools  # noqa: F401 — registers web tools
+import memory  # noqa: F401 — registers recall_memory tool
 from hooks import HookContext
 
 
@@ -78,11 +79,22 @@ def handle_command(content: str, chat_id: str, request_id: str):
         hooks.reload_custom_hooks()
         send_reply(chat_id, "Hooks reloaded.")
     elif cmd == "/stats":
-        send_reply(chat_id, f"Bot is running. Request: {request_id}")
+        persona = config.get_persona()
+        name = config.PERSONAS[persona]["name"]
+        send_reply(chat_id, f"Bot is running. Persona: {name}. Request: {request_id}")
     elif cmd == "/ping":
         send_reply(chat_id, "pong")
+    elif cmd == "/role":
+        lines = ["当前角色：" + config.PERSONAS[config.get_persona()]["name"], ""]
+        for key, name in config.list_personas().items():
+            lines.append(f"  /{key} — {name}")
+        send_reply(chat_id, "\n".join(lines))
+    elif cmd.lstrip("/") in config.PERSONAS:
+        key = cmd.lstrip("/")
+        name = config.set_persona(key)
+        send_reply(chat_id, f"已切换为: {name}")
     else:
-        send_reply(chat_id, f"未知命令: {content}")
+        send_reply(chat_id, f"未知命令: {content}\n发送 /role 查看角色列表")
 
 
 def handle_message(event: dict):
