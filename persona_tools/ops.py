@@ -11,12 +11,26 @@ from persona_tools._helpers import safe_call, llm_generate, save_to_doc, call_to
 
 _CONTENT_BRIEF_SYSTEM = (
     "你是一位资深内容运营专家，熟悉主流平台（微信、抖音、小红书、Twitter/X、LinkedIn）。"
-    "根据收集到的数据，生成结构化内容策划 Brief。格式要求：\n\n"
-    "## 受众分析\n目标受众画像、痛点、关注点（引用真实讨论数据）\n\n"
-    "## 热门趋势\n当前平台上此话题的热门内容形式和角度（附示例链接）\n\n"
-    "## 竞品内容审计\n竞争对手的内容策略分析（频率、形式、互动数据）\n\n"
-    "## 平台适配建议\n针对目标平台的具体建议（格式、长度、发布时间、标签）\n\n"
-    "## 内容大纲\n推荐 3-5 个内容选题，每个含标题、角度、关键信息点\n\n"
+    "根据收集到的数据，生成结构化内容策划 Brief。严格按以下框架输出：\n\n"
+    "## 受众分析\n"
+    "- 核心痛点 (Top 3，引用真实讨论数据)\n"
+    "- 搜索意图分类: 信息型 / 导航型 / 交易型\n"
+    "- 心理驱动: 最有效的心理学原理（社会认同/稀缺性/权威/互惠/锚定效应）\n\n"
+    "## SEO 机会\n"
+    "| 关键词/话题 | 搜索意图 | 竞争度(高/中/低) | 建议内容形式 |\n\n"
+    "## 热门趋势\n"
+    "| 趋势/话题 | 平台 | 互动量级 | 内容形式 | 可复用点 |\n\n"
+    "## 竞品内容审计\n"
+    "| 竞品 | 发布频率 | 主力平台 | 内容类型 | 互动量级 | 我方差异化机会 |\n\n"
+    "## 平台适配方案\n"
+    "| 平台 | 最佳格式 | 最佳长度 | 最佳发布时间 | 标签策略 |\n\n"
+    "## 内容选题 (3-5 个)\n"
+    "每个选题包含：\n"
+    "- 标题\n"
+    "- AIDA 框架: A(吸引点) → I(兴趣点) → D(欲望点) → A(行动点)\n"
+    "- 心理学 Hook: 使用哪个心理学原理\n"
+    "- 关键信息点\n"
+    "- A/B 测试建议: A版(角度1) vs B版(角度2)\n\n"
     "## 品牌一致性\n基于内部品牌指南的注意事项\n\n"
     "建议具体可执行。使用中文输出。"
 )
@@ -56,6 +70,18 @@ def content_research_brief(inputs: dict, context: dict) -> str:
     })
     if competitor_content:
         parts.append(f"## 竞品内容\n{competitor_content}")
+
+    seo = safe_call(rid, "web_search", {
+        "query": f"{topic} SEO keywords search volume content opportunities",
+    })
+    if seo:
+        parts.append(f"## SEO 关键词\n{seo}")
+
+    formats = safe_call(rid, "web_search", {
+        "query": f"{topic} best content format engagement performance data",
+    })
+    if formats:
+        parts.append(f"## 内容格式效果\n{formats}")
 
     brand = safe_call(rid, "search_docs", {"query": "品牌 指南 内容"})
     if brand:
@@ -108,12 +134,22 @@ register(ToolDef(
 
 _CAMPAIGN_REPORT_SYSTEM = (
     "你是一位运营项目管理专家。根据活动跟踪表数据和最新进展，"
-    "生成活动状态报告。格式要求：\n\n"
-    "## 整体进度\n完成率、关键里程碑状态\n\n"
-    "## 逾期项\n已超过截止日期的任务（标红）\n\n"
-    "## 风险项\n即将到期或存在阻塞的任务\n\n"
+    "生成活动状态报告。严格按以下框架输出：\n\n"
+    "## 整体进度\n完成率(X/Y 任务)、关键里程碑状态\n\n"
+    "## AARRR 漏斗（如适用）\n"
+    "| 阶段 | 目标 | 实际 | 达成率 | 趋势(↑→↓) |\n"
+    "Acquisition / Activation / Retention / Revenue / Referral\n"
+    "如果活动不涉及完整漏斗，只填写相关阶段。\n\n"
+    "## 逾期项 🔴\n"
+    "| 任务 | 负责人 | 原截止日 | 逾期天数 | 原因 |\n\n"
+    "## 风险项 🟡\n"
+    "| 任务 | 风险点 | 建议对策 |\n\n"
     "## 本周进展\n最新更新和变化\n\n"
-    "## 建议行动\n需要立即处理的事项\n\n"
+    "## ROI 初估（活动结束后填写）\n"
+    "- 投入: 人力 X 人天 + 预算 ¥Y\n"
+    "- 产出: [核心指标] Z\n"
+    "- 经验教训: 做对了什么/下次改进什么\n\n"
+    "## 建议行动\n按优先级列出需立即处理的事项\n\n"
     "使用中文输出。"
 )
 

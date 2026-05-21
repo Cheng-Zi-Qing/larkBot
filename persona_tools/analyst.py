@@ -11,17 +11,30 @@ from persona_tools._helpers import safe_call, llm_generate, save_to_doc
 
 _MARKET_SCANNER_SYSTEM = (
     "你是一位资深商业分析师，专注海外互联网市场。根据收集到的多维数据，"
-    "生成市场机会扫描报告。格式要求：\n\n"
+    "生成市场机会扫描报告。严格按以下框架输出：\n\n"
     "## 市场概况\n赛道规模、增长率、发展阶段\n\n"
+    "## PESTLE 宏观扫描\n"
+    "| 维度 | 关键因素 | 趋势(INC↑/DEC↓/CONST→) | 对市场影响 |\n"
+    "六行：Political(政策) / Economic(经济) / Social(社会) / "
+    "Technological(技术) / Legal(法规) / Environmental(环境)\n\n"
     "## 信号扫描\n"
-    "### 融资动态（市场验证信号）\n近期融资事件、金额、投资方\n\n"
-    "### 新产品/新入场者\n新上线产品、产品迭代、市场反应\n\n"
-    "### 用户痛点（需求信号）\n用户投诉、未满足需求、社区讨论热点\n\n"
-    "## 机会假设\n基于以上信号，列出 3-5 个潜在机会，每个包含：\n"
-    "- 机会描述\n- 支撑信号（引用具体数据）\n- 信号强度（强/中/弱）\n"
-    "- 切入建议\n\n"
+    "### 融资动态（市场验证信号）\n"
+    "| 公司 | 轮次 | 金额 | 投资方 | 趋势 |\n\n"
+    "### 新产品/新入场者\n"
+    "| 产品 | 上线时间 | 定位 | 市场反应 | 趋势 |\n\n"
+    "### 用户痛点（需求信号）\n"
+    "| 痛点 | 来源 | 频次 | 趋势 |\n\n"
+    "## 机会假设排序\n"
+    "| # | 机会描述 | 信号强度 | 市场规模 | 进入难度 | 综合评分(★1-5) |\n"
+    "列出 3-5 个，按综合评分降序，每个附切入建议。\n\n"
+    "## Ansoff 增长矩阵\n"
+    "分四象限分析增长路径：\n"
+    "- 市场渗透（现有产品×现有市场）\n"
+    "- 产品开发（新产品×现有市场）\n"
+    "- 市场开发（现有产品×新市场）\n"
+    "- 多元化（新产品×新市场）\n\n"
     "## 风险提示\n需要关注的市场风险\n\n"
-    "数据来源要标注。使用中文输出。"
+    "数据来源要标注，每个信号标注趋势方向。使用中文输出。"
 )
 
 
@@ -57,6 +70,18 @@ def market_scanner(inputs: dict, context: dict) -> str:
     })
     if pain_points:
         parts.append(f"## 用户痛点\n{pain_points}")
+
+    pestle = safe_call(rid, "web_search", {
+        "query": f"{market} regulation policy government impact {time_window}",
+    })
+    if pestle:
+        parts.append(f"## 政策法规\n{pestle}")
+
+    tech_trends = safe_call(rid, "web_search", {
+        "query": f"{market} technology disruption innovation trend {time_window}",
+    })
+    if tech_trends:
+        parts.append(f"## 技术趋势\n{tech_trends}")
 
     if lens:
         lens_data = safe_call(rid, "web_search", {"query": f"{market} {lens}"})
@@ -111,14 +136,29 @@ register(ToolDef(
 
 _ACQUISITION_SYSTEM = (
     "你是一位增长和获客策略专家，熟悉北美、欧洲、东南亚市场。"
-    "根据收集到的数据，生成结构化拓客策略报告。格式要求：\n\n"
-    "## 目标客群画像\n谁是理想客户，他们在哪里聚集\n\n"
-    "## 竞品获客方式\n竞争对手怎么获客的（渠道、策略、效果）\n\n"
-    "## 渠道矩阵\n| 渠道 | 类型 | 预估 ROI | 启动难度 | 适合阶段 |\n"
-    "按 ROI 排序\n\n"
-    "## 具体打法\n每个推荐渠道的详细执行方案\n\n"
-    "## 冷启动建议\n第一批 100 个客户怎么来\n\n"
-    "## 增长实验设计\n2-3 个可快速验证的实验\n\n"
+    "根据收集到的数据，生成结构化拓客策略报告。严格按以下框架输出：\n\n"
+    "## ICP（理想客户画像）\n"
+    "- 公司画像: 行业/规模/阶段/地区\n"
+    "- 决策者: 职位/关注点/预算权限\n"
+    "- 影响者: 技术评估者/终端用户\n"
+    "- 购买触发点: 什么事件驱动购买决策\n"
+    "- 反面画像: 不适合的客户特征\n\n"
+    "## 竞品获客方式\n"
+    "| 竞品 | 主要渠道 | 策略 | 效果 | 可借鉴点 |\n\n"
+    "## 渠道评估矩阵\n"
+    "| 渠道 | CAC 估算 | LTV 潜力 | 可扩展性 | 启动难度 | 综合评分 |\n"
+    "按综合评分排序。\n\n"
+    "## 单元经济参考\n"
+    "- 行业 CAC 基准\n- 目标 LTV/CAC 比 (>3x)\n- Payback Period 目标\n\n"
+    "## Bull's Eye 渠道筛选\n"
+    "- 内圈（优先）: 1-2 个高确信渠道\n"
+    "- 中圈（测试）: 2-3 个待验证渠道\n"
+    "- 外圈（观察）: 远期可能渠道\n\n"
+    "## 冷启动 First 100 Customers 方案\n"
+    "按首月可达量 × 单位成本排序，每个渠道给出具体执行步骤。\n\n"
+    "## 增长实验设计\n"
+    "| 实验名 | 假设 | 核心指标 | 预期时长 | 预算 |\n"
+    "2-3 个可快速验证的实验。\n\n"
     "建议务实可执行，附带时间线。使用中文输出。"
 )
 
@@ -156,6 +196,18 @@ def acquisition_research(inputs: dict, context: dict) -> str:
     })
     if community:
         parts.append(f"## 目标客群聚集地\n{community}")
+
+    icp = safe_call(rid, "web_search", {
+        "query": f"{query_base} ideal customer profile ICP decision maker buyer persona",
+    })
+    if icp:
+        parts.append(f"## ICP 参考\n{icp}")
+
+    economics = safe_call(rid, "web_search", {
+        "query": f"{product or target} CAC LTV unit economics SaaS benchmark",
+    })
+    if economics:
+        parts.append(f"## 单元经济基准\n{economics}")
 
     internal = safe_call(rid, "search_docs", {"query": query_base})
     if internal:

@@ -11,14 +11,25 @@ from persona_tools._helpers import safe_call, llm_generate, save_to_doc, call_to
 
 _COMPETITIVE_SYSTEM = (
     "你是一位资深 SaaS 产品分析师。根据收集到的网络数据和内部讨论，"
-    "生成结构化竞品分析报告。格式要求：\n\n"
-    "## 市场概览\n简述赛道现状、市场规模趋势\n\n"
-    "## 竞品矩阵\n| 产品 | 定位 | 核心功能 | 定价模式 | 目标客户 | 差异化 |\n"
-    "（每个竞品一行）\n\n"
-    "## 竞争格局\n第一梯队/第二梯队分析\n\n"
-    "## 用户痛点\n从评价和反馈中提炼的共性问题\n\n"
-    "## 机会与威胁\n产品切入点建议\n\n"
-    "数据来源要标注。如果某些数据缺失，标注'待补充'。使用中文输出。"
+    "生成结构化竞品分析报告。严格按以下框架输出：\n\n"
+    "## 市场规模 (TAM/SAM/SOM)\n"
+    "- TAM（总可寻址市场）: 全球/全行业规模\n"
+    "- SAM（可服务市场）: 目标区域+目标客群\n"
+    "- SOM（可获取市场）: 短期可触达份额\n"
+    "缺少精确数据时给出量级估算并标注依据。\n\n"
+    "## Porter's Five Forces 分析\n"
+    "| 力量 | 强度(高/中/低) | 关键因素 |\n"
+    "五行：供应商议价力、买家议价力、替代品威胁、新进入者威胁、行业竞争强度。\n\n"
+    "## 竞品 Battle Cards\n"
+    "每家主要竞品一张卡片：\n"
+    "- 核心卖点（一句话）\n- 定价模式与价格带\n- 主要弱点\n"
+    "- 我方相对优势\n- 建议对策\n\n"
+    "## 竞品矩阵\n| 产品 | 定位 | 核心功能 | 定价 | 目标客户 | 差异化 |\n\n"
+    "## 定位矩阵\n选择 2 个最关键竞争维度作为 X/Y 轴，"
+    "描述各竞品位置，标出空白区域（潜在机会）。\n\n"
+    "## 用户痛点\n从评价和反馈中提炼共性问题，按频率排序。\n\n"
+    "## 机会与威胁\n基于以上分析给出具体切入点建议，附优先级。\n\n"
+    "数据来源要标注。缺失数据标注'待补充'。使用中文输出。"
 )
 
 
@@ -33,6 +44,14 @@ def competitive_landscape(inputs: dict, context: dict) -> str:
     research = safe_call(rid, "web_research", {"topic": f"{product} competitive analysis market landscape 2024 2025"})
     if research:
         parts.append(f"## 市场研究\n{research}")
+
+    tam = safe_call(rid, "web_search", {"query": f"{product} market size TAM SAM SOM revenue forecast"})
+    if tam:
+        parts.append(f"## 市场规模数据\n{tam}")
+
+    porters = safe_call(rid, "web_search", {"query": f"{product} industry analysis barriers entry supplier buyer power"})
+    if porters:
+        parts.append(f"## 行业结构\n{porters}")
 
     pricing = safe_call(rid, "web_search", {"query": f"{product} pricing plans comparison"})
     if pricing:
@@ -94,14 +113,26 @@ register(ToolDef(
 
 _PRD_SYSTEM = (
     "你是一位资深 SaaS 产品经理。根据需求描述和收集到的内部上下文，"
-    "生成结构化 PRD（产品需求文档）。格式要求：\n\n"
-    "## 背景与目标\n为什么做这个功能，解决什么问题\n\n"
-    "## 用户故事\nAs a [角色], I want [功能], so that [价值]\n\n"
-    "## 功能需求\n按优先级列出具体需求（P0/P1/P2）\n\n"
-    "## 非功能需求\n性能、安全、兼容性等\n\n"
-    "## 数据/指标\n核心指标和衡量方式\n\n"
-    "## 验收标准\n具体的验收条件\n\n"
-    "## 排期建议\n估算工作量和里程碑\n\n"
+    "生成结构化 PRD（产品需求文档）。严格按以下框架输出：\n\n"
+    "## 1. 问题定义\n"
+    "- **谁 (Who)**: 受影响的用户群体\n"
+    "- **什么 (What)**: 具体问题描述\n"
+    "- **为什么 (Why)**: 为什么痛苦/重要\n"
+    "- **证据 (Evidence)**: 支撑数据、用户反馈、内部讨论引用\n\n"
+    "## 2. 目标用户与 JTBD\n"
+    "主要 Persona + 次要 Persona，每个列出：\n"
+    "| 用户角色 | 功能需求 (Functional) | 社会需求 (Social) | 情感需求 (Emotional) |\n\n"
+    "## 3. 用户故事\n"
+    "As a [角色], I want [功能], so that [价值]\n"
+    "每个故事附验收标准：Given [前置条件] / When [操作] / Then [预期结果]\n\n"
+    "## 4. 功能需求（RICE 优先级）\n"
+    "| 需求 | Reach | Impact | Confidence | Effort | RICE Score |\n"
+    "按 RICE 分数降序排列。Impact 用 3/2/1/0.5 打分。\n\n"
+    "## 5. 非功能需求\n性能、安全、兼容性、可访问性\n\n"
+    "## 6. 成功指标\n"
+    "- 北极星指标 (North Star): 核心衡量指标\n"
+    "- 护栏指标 (Guardrails): 不能恶化的指标\n\n"
+    "## 7. 排期建议\n里程碑 + 依赖项 + 风险缓解措施\n\n"
     "引用内部已有的相关文档和讨论。使用中文输出。"
 )
 
