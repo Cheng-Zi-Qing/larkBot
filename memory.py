@@ -134,14 +134,15 @@ def _rebuild_db():
 
 def _reset_and_reconnect():
     global _db
-    if _db is not None:
-        try:
-            _db.close()
-        except Exception:
-            pass
-        _db = None
-    _rebuild_db()
-    return _get_db()
+    with _db_lock:
+        if _db is not None:
+            try:
+                _db.close()
+            except Exception:
+                pass
+            _db = None
+        _rebuild_db()
+        return _get_db()
 
 
 # --- Session state (single user, single process) ---
@@ -405,13 +406,14 @@ def _parse_llm_json(text: str) -> dict | None:
 def _close_session(session_id: str):
     messages = load_session_messages(session_id)
     now = int(time.time())
+    base_tags_snapshot = set(_session_base_tags)
 
     if len(messages) < 4:
         with _db_lock:
             db = _get_db()
             db.execute(
                 "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
-                (now, "短对话", json.dumps(sorted(_session_base_tags), ensure_ascii=False), session_id),
+                (now, "短对话", json.dumps(sorted(base_tags_snapshot), ensure_ascii=False), session_id),
             )
             db.commit()
         return
@@ -422,19 +424,51 @@ def _close_session(session_id: str):
             db = _get_db()
             db.execute(
                 "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
-                (now, "空对话", json.dumps(sorted(_session_base_tags), ensure_ascii=False), session_id),
+                (now, "空对话", json.dumps(sorted(base_tags_snapshot), ensure_ascii=False), session_id),
             )
             db.commit()
         return
 
-    _run_summarization(compressed, session_id, now)
+    threading.Thread(
+        target=_run_summarization,
+        args=(compressed, session_id, now, base_tags_snapshot),
+        daemon=True,
+    ).start()
 
 
-def _run_summarization(compressed: str, session_id: str, now: int):
-    base_tags_json = json.dumps(sorted(_session_base_tags), ensure_ascii=False)
+_summary_client = None
+
+
+def _get_summary_client():
+    global _summary_client
+    if _summary_client is not None:
+        return _summary_client
+    model = config.LLM_SUMMARY_MODEL
+    is_anthropic_model = model.startswith("claude")
+    if config.LLM_PROVIDER == "anthropic" and not is_anthropic_model:
+        _summary_client = llm.OpenAIClient.__new__(llm.OpenAIClient)
+        from openai import OpenAI
+        import httpx as _httpx
+        kwargs: dict = {
+            "api_key": config.ANTHROPIC_API_KEY,
+            "timeout": _httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0),
+        }
+        if config.ANTHROPIC_BASE_URL:
+            base = config.ANTHROPIC_BASE_URL.rstrip("/")
+            if not base.endswith("/v1"):
+                base += "/v1"
+            kwargs["base_url"] = base
+        _summary_client._client = OpenAI(**kwargs)
+    else:
+        _summary_client = llm.get_client()
+    return _summary_client
+
+
+def _run_summarization(compressed: str, session_id: str, now: int, base_tags: set[str]):
+    base_tags_json = json.dumps(sorted(base_tags), ensure_ascii=False)
 
     try:
-        client = llm.get_client()
+        client = _get_summary_client()
         prompt = _SUMMARY_PROMPT.format(history=compressed)
         response = client.chat(
             messages=[{"role": "user", "content": prompt}],
@@ -446,23 +480,29 @@ def _run_summarization(compressed: str, session_id: str, now: int):
         parsed = _parse_llm_json(response.text or "")
     except Exception as e:
         logger.log_error("memory", "summarization", type(e).__name__, stderr=str(e))
-        with _db_lock:
-            db = _get_db()
-            db.execute(
-                "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
-                (now, "[摘要生成失败]", base_tags_json, session_id),
-            )
-            db.commit()
+        try:
+            with _db_lock:
+                db = _get_db()
+                db.execute(
+                    "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
+                    (now, "[摘要生成失败]", base_tags_json, session_id),
+                )
+                db.commit()
+        except sqlite3.DatabaseError:
+            pass
         return
 
     if not parsed:
-        with _db_lock:
-            db = _get_db()
-            db.execute(
-                "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
-                (now, compressed[:200], base_tags_json, session_id),
-            )
-            db.commit()
+        try:
+            with _db_lock:
+                db = _get_db()
+                db.execute(
+                    "UPDATE sessions SET end_time = ?, summary = ?, base_tags = ? WHERE session_id = ?",
+                    (now, compressed[:200], base_tags_json, session_id),
+                )
+                db.commit()
+        except sqlite3.DatabaseError:
+            pass
         return
 
     summary = parsed.get("summary", "")[:500]
@@ -473,23 +513,26 @@ def _run_summarization(compressed: str, session_id: str, now: int):
     entity = ", ".join(tags.get("entity", [])) if isinstance(tags.get("entity"), list) else str(tags.get("entity", ""))
     extra = ", ".join(tags.get("extra", [])) if isinstance(tags.get("extra"), list) else str(tags.get("extra", ""))
 
-    with _db_lock:
-        db = _get_db()
-        db.execute(
-            "UPDATE sessions SET end_time=?, summary=?, base_tags=?, people=?, topic=?, action=?, entity=?, extra_tags=? "
-            "WHERE session_id=?",
-            (now, summary, base_tags_json, people, topic, action, entity, extra, session_id),
-        )
+    try:
+        with _db_lock:
+            db = _get_db()
+            db.execute(
+                "UPDATE sessions SET end_time=?, summary=?, base_tags=?, people=?, topic=?, action=?, entity=?, extra_tags=? "
+                "WHERE session_id=?",
+                (now, summary, base_tags_json, people, topic, action, entity, extra, session_id),
+            )
 
-        facts = parsed.get("facts", [])
-        for fact in facts:
-            if isinstance(fact, str) and fact.strip():
-                db.execute(
-                    "INSERT INTO facts (fact_text, source_session, created_at) VALUES (?, ?, ?)",
-                    (fact.strip(), session_id, now),
-                )
+            facts = parsed.get("facts", [])
+            for fact in facts:
+                if isinstance(fact, str) and fact.strip():
+                    db.execute(
+                        "INSERT INTO facts (fact_text, source_session, created_at) VALUES (?, ?, ?)",
+                        (fact.strip(), session_id, now),
+                    )
 
-        db.commit()
+            db.commit()
+    except sqlite3.DatabaseError:
+        pass
 
 
 # --- recall_memory tool ---
