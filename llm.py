@@ -5,6 +5,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
+
 import config
 
 _MAX_RETRIES = 3
@@ -104,12 +106,15 @@ def _openai_messages(messages: list[dict], system: str) -> list[dict]:
     return out
 
 
+_LLM_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
+
+
 class AnthropicClient:
     def __init__(self):
         import anthropic
         kwargs: dict[str, Any] = {
             "api_key": config.ANTHROPIC_API_KEY,
-            "timeout": 120.0,
+            "timeout": _LLM_TIMEOUT,
         }
         if config.ANTHROPIC_BASE_URL:
             kwargs["base_url"] = config.ANTHROPIC_BASE_URL
@@ -159,7 +164,7 @@ class OpenAIClient:
         from openai import OpenAI
         kwargs: dict[str, Any] = {
             "api_key": config.OPENAI_API_KEY,
-            "timeout": 120.0,
+            "timeout": _LLM_TIMEOUT,
         }
         if config.OPENAI_BASE_URL:
             kwargs["base_url"] = config.OPENAI_BASE_URL
