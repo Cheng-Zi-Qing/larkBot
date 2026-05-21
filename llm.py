@@ -107,7 +107,10 @@ def _openai_messages(messages: list[dict], system: str) -> list[dict]:
 class AnthropicClient:
     def __init__(self):
         import anthropic
-        kwargs: dict[str, Any] = {"api_key": config.ANTHROPIC_API_KEY}
+        kwargs: dict[str, Any] = {
+            "api_key": config.ANTHROPIC_API_KEY,
+            "timeout": 120.0,
+        }
         if config.ANTHROPIC_BASE_URL:
             kwargs["base_url"] = config.ANTHROPIC_BASE_URL
         self._client = anthropic.Anthropic(**kwargs)
@@ -154,7 +157,10 @@ class AnthropicClient:
 class OpenAIClient:
     def __init__(self):
         from openai import OpenAI
-        kwargs: dict[str, Any] = {"api_key": config.OPENAI_API_KEY}
+        kwargs: dict[str, Any] = {
+            "api_key": config.OPENAI_API_KEY,
+            "timeout": 120.0,
+        }
         if config.OPENAI_BASE_URL:
             kwargs["base_url"] = config.OPENAI_BASE_URL
         self._client = OpenAI(**kwargs)

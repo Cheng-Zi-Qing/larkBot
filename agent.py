@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from collections import defaultdict
 
 import config
@@ -11,6 +12,7 @@ from hooks import HookContext
 from tools import execute_tool, get_tool_definitions
 
 history: dict[str, list[dict]] = defaultdict(list)
+_history_lock = threading.Lock()
 
 
 def _trim_history(chat_id: str):
@@ -64,13 +66,13 @@ def run(request_id: str, chat_id: str, user_message: str) -> str:
 
     rotated = memory.check_session_boundary()
     session_id = memory.get_current_session_id()
-    if rotated:
-        history[chat_id] = []
 
-    if not history.get(chat_id):
-        history[chat_id] = _sanitize_messages(memory.load_session_messages(session_id))
-
-    messages = list(history.get(chat_id, []))
+    with _history_lock:
+        if rotated:
+            history[chat_id] = []
+        if not history.get(chat_id):
+            history[chat_id] = _sanitize_messages(memory.load_session_messages(session_id))
+        messages = list(history.get(chat_id, []))
     messages.append({"role": "user", "content": user_message})
     memory.persist_message(session_id, "user", user_message)
 
@@ -101,8 +103,9 @@ def run(request_id: str, chat_id: str, user_message: str) -> str:
                 reply_text = hook_result.override_output
 
             logger.log_conversation(request_id, chat_id, user_message, messages, reply_text)
-            history[chat_id] = messages
-            _trim_history(chat_id)
+            with _history_lock:
+                history[chat_id] = messages
+                _trim_history(chat_id)
             return reply_text
 
         elif response.stop_reason == "tool_use":

@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import agent
 import config
@@ -13,6 +14,7 @@ import hooks
 import logger
 import web_tools  # noqa: F401 — registers web tools
 import memory  # noqa: F401 — registers recall_memory tool
+import persona_tools  # noqa: F401 — registers persona tools
 from hooks import HookContext
 
 
@@ -116,13 +118,20 @@ def handle_message(event: dict):
 
     try:
         reply = agent.run(request_id, chat_id, content)
+        if not reply or not reply.strip():
+            reply = "（模型返回为空，请重新描述你的问题）"
         send_reply(chat_id, reply, message_id)
     except Exception as e:
         logger.log_error(request_id, "bot", "AgentError", stderr=str(e))
         if "rate" in type(e).__name__.lower():
             send_reply(chat_id, "当前请求太频繁，请稍等片刻再试。")
+        elif "timeout" in type(e).__name__.lower():
+            send_reply(chat_id, "请求超时了，请稍后再试。")
         else:
             send_reply(chat_id, f"处理失败，请稍后再试。({type(e).__name__})")
+
+
+_executor = ThreadPoolExecutor(max_workers=4)
 
 
 def main():
@@ -139,12 +148,13 @@ def main():
                 continue
             try:
                 event = json.loads(line)
-                handle_message(event)
+                _executor.submit(handle_message, event)
             except json.JSONDecodeError:
                 logger.log_error("system", "bot", "json_parse", stderr=f"Bad line: {line[:200]}")
     except KeyboardInterrupt:
         print("\n[BOT] Shutting down...", file=sys.stderr)
     finally:
+        _executor.shutdown(wait=False)
         proc.stdin.close()
         try:
             proc.wait(timeout=10)
