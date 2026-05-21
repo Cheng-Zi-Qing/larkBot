@@ -177,6 +177,10 @@ def _recover_or_create():
         except (json.JSONDecodeError, TypeError):
             _session_base_tags = set()
     else:
+        try:
+            _session_base_tags = set(json.loads(tags_json)) if tags_json else set()
+        except (json.JSONDecodeError, TypeError):
+            _session_base_tags = set()
         _close_session(sid)
         _create_session()
 

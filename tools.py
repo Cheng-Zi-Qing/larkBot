@@ -99,31 +99,32 @@ def _execute_cli_tool(
         )
     except subprocess.TimeoutExpired:
         duration_ms = (time.monotonic() - start) * 1000
-        logger.log_error(request_id, tool_name, "TimeoutError", duration_ms=duration_ms)
+        logger.log_error(request_id, tool_def.name, "TimeoutError", duration_ms=duration_ms)
         hooks.fire("on_error", ctx.with_error("TimeoutError"))
         return ToolResult(output="Tool call timed out", success=False)
 
     duration_ms = (time.monotonic() - start) * 1000
 
-    logger.log_tool_call(request_id, tool_name, tool_input, cmd, proc, duration_ms)
+    logger.log_tool_call(request_id, tool_def.name, tool_input, cmd, proc, duration_ms)
 
     if proc.returncode != 0:
         error_ctx = ctx.with_result(proc, duration_ms)
 
         if proc.returncode == 10:
             logger.log_error(
-                request_id, tool_name, "HighRiskBlocked",
+                request_id, tool_def.name, "HighRiskBlocked",
                 stderr=proc.stderr, exit_code=10,
             )
         else:
             logger.log_error(
-                request_id, tool_name, "LarkCLIError",
+                request_id, tool_def.name, "LarkCLIError",
                 stderr=proc.stderr, exit_code=proc.returncode,
             )
 
         hook_result = hooks.fire("on_error", error_ctx)
-        if hook_result.retry and error_ctx.retry_count < config.MAX_RETRIES:
-            return execute_tool(request_id, tool_name, tool_input)
+        if hook_result.retry and ctx.retry_count < config.MAX_RETRIES:
+            ctx.retry_count += 1
+            return _execute_cli_tool(request_id, tool_def, tool_input, ctx)
 
         return ToolResult(
             output=f"Error (exit {proc.returncode}): {proc.stderr[:500]}",

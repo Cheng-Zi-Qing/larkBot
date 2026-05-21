@@ -37,12 +37,25 @@ class HookContext:
     extras: dict[str, Any] = field(default_factory=dict)
 
     def with_error(self, error_type: str) -> HookContext:
-        ctx = HookContext(**self.__dict__)
+        ctx = HookContext(
+            request_id=self.request_id, chat_id=self.chat_id,
+            tool_name=self.tool_name, tool_input=self.tool_input,
+            messages=self.messages, reply_text=self.reply_text,
+            exit_code=self.exit_code, stderr=self.stderr, stdout=self.stdout,
+            duration_ms=self.duration_ms, retry_count=self.retry_count,
+            extra_flags=list(self.extra_flags), extras=dict(self.extras),
+        )
         ctx.extras["error_type"] = error_type
         return ctx
 
     def with_result(self, proc, duration_ms: float) -> HookContext:
-        ctx = HookContext(**self.__dict__)
+        ctx = HookContext(
+            request_id=self.request_id, chat_id=self.chat_id,
+            tool_name=self.tool_name, tool_input=self.tool_input,
+            messages=self.messages, reply_text=self.reply_text,
+            retry_count=self.retry_count,
+            extra_flags=list(self.extra_flags), extras=dict(self.extras),
+        )
         ctx.exit_code = proc.returncode
         ctx.stderr = proc.stderr or ""
         ctx.stdout = proc.stdout or ""
@@ -130,6 +143,4 @@ def builtin_permission_error(ctx: HookContext) -> HookResult:
 
 @hook("before_tool", priority=5)
 def builtin_high_risk_guard(ctx: HookContext) -> HookResult:
-    if ctx.tool_name in HIGH_RISK_TOOLS:
-        ctx.extra_flags.append("--dry-run")
     return HookResult()

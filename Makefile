@@ -1,4 +1,4 @@
-.PHONY: init install start stop restart reload status logs clean test-llm
+.PHONY: init install start stop restart status logs clean test-llm
 
 CTL = ./scripts/ctl.sh
 
@@ -17,9 +17,6 @@ stop:
 	@$(CTL) stop
 
 restart:
-	@$(CTL) restart
-
-reload:
 	@$(CTL) restart
 
 status:

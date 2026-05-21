@@ -8,6 +8,7 @@ import time
 import uuid
 
 import agent
+import config
 import hooks
 import logger
 import web_tools  # noqa: F401 — registers web tools
