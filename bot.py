@@ -110,6 +110,19 @@ def handle_message(event: dict):
     if not content:
         return
 
+    try:
+        _process_message(request_id, chat_id, sender_id, content, message_id)
+    except Exception as e:
+        print(f"[BOT] [{request_id}] Unhandled: {e}", file=sys.stderr)
+        try:
+            send_reply(chat_id, f"内部错误，请稍后再试。({type(e).__name__})")
+        except Exception:
+            pass
+
+
+def _process_message(
+    request_id: str, chat_id: str, sender_id: str, content: str, message_id: str,
+):
     print(f"[BOT] [{request_id}] From {sender_id}: {content[:80]}", file=sys.stderr)
 
     if content.startswith("/"):
