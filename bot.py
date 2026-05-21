@@ -17,6 +17,42 @@ import memory  # noqa: F401 — registers recall_memory tool
 import persona_tools  # noqa: F401 — registers persona tools
 from hooks import HookContext
 
+TOOL_LABELS: dict[str, str] = {
+    "web_search": "搜索网络",
+    "web_read": "读取网页",
+    "web_research": "深度调研",
+    "search_messages": "搜索消息",
+    "get_chat_history": "读取聊天记录",
+    "send_message": "发送消息",
+    "reply_message": "回复消息",
+    "search_chats": "搜索会话",
+    "create_doc": "创建文档",
+    "read_doc": "读取文档",
+    "search_docs": "搜索文档",
+    "read_table": "读取多维表格",
+    "write_table": "写入多维表格",
+    "query_table": "查询多维表格",
+    "read_sheet": "读取电子表格",
+    "get_agenda": "查看日程",
+    "create_event": "创建日程",
+    "check_freebusy": "查询空闲时间",
+    "get_my_tasks": "查看任务",
+    "create_task": "创建任务",
+    "search_tasks": "搜索任务",
+    "search_mail": "搜索邮件",
+    "search_user": "搜索用户",
+    "search_meetings": "搜索会议",
+    "competitive_landscape": "竞品分析",
+    "generate_prd": "生成 PRD",
+    "content_research_brief": "内容调研",
+    "campaign_tracker": "活动追踪",
+    "meeting_digest": "会议纪要",
+    "weekly_report_builder": "周报生成",
+    "market_scanner": "市场扫描",
+    "acquisition_research": "获客研究",
+    "recall_memory": "回忆记忆",
+}
+
 
 def start_event_consumer() -> subprocess.Popen:
     proc = subprocess.Popen(
@@ -132,7 +168,8 @@ def _process_message(
     send_reply(chat_id, "收到，处理中…", message_id)
 
     try:
-        reply = agent.run(request_id, chat_id, content, sender_id=sender_id)
+        reply = agent.run(request_id, chat_id, content, sender_id=sender_id,
+                          on_progress=_make_progress_cb(chat_id))
         if not reply or not reply.strip():
             reply = "（模型返回为空，请重新描述你的问题）"
         send_reply(chat_id, reply)
@@ -149,6 +186,21 @@ def _process_message(
 
 
 _executor = ThreadPoolExecutor(max_workers=4)
+
+
+def _make_progress_cb(chat_id: str):
+    last_ts = 0.0
+
+    def _on_progress(tool_names: list[str]):
+        nonlocal last_ts
+        now = time.time()
+        if now - last_ts < 3.0:
+            return
+        last_ts = now
+        labels = [TOOL_LABELS.get(n, n) for n in tool_names]
+        send_reply(chat_id, "⏳ " + " → ".join(labels))
+
+    return _on_progress
 
 
 def main():

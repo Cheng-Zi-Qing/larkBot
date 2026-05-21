@@ -61,7 +61,7 @@ def _sanitize_messages(messages: list[dict]) -> list[dict]:
     return clean
 
 
-def run(request_id: str, chat_id: str, user_message: str, sender_id: str = "") -> str:
+def run(request_id: str, chat_id: str, user_message: str, sender_id: str = "", on_progress=None) -> str:
     hooks.fire("on_message_in", HookContext(request_id=request_id, chat_id=chat_id))
 
     rotated = memory.check_session_boundary()
@@ -79,7 +79,7 @@ def run(request_id: str, chat_id: str, user_message: str, sender_id: str = "") -
     hooks.fire("before_agent", HookContext(request_id=request_id, messages=messages))
 
     try:
-        return _agent_loop(request_id, chat_id, sender_id, session_id, user_message, messages)
+        return _agent_loop(request_id, chat_id, sender_id, session_id, user_message, messages, on_progress)
     except Exception as e:
         if "bad" not in type(e).__name__.lower():
             raise
@@ -87,7 +87,7 @@ def run(request_id: str, chat_id: str, user_message: str, sender_id: str = "") -
         with _history_lock:
             history[chat_id] = []
         messages = [{"role": "user", "content": user_message}]
-        return _agent_loop(request_id, chat_id, sender_id, session_id, user_message, messages)
+        return _agent_loop(request_id, chat_id, sender_id, session_id, user_message, messages, on_progress)
 
 
 def _agent_loop(
@@ -97,6 +97,7 @@ def _agent_loop(
     session_id: str,
     user_message: str,
     messages: list[dict],
+    on_progress=None,
 ) -> str:
     client = llm.get_client()
     collected_text: list[str] = []
@@ -134,15 +135,19 @@ def _agent_loop(
 
         elif response.stop_reason == "tool_use":
             tool_use_results = []
+            tool_names = []
             for tc in response.tool_calls:
                 result = execute_tool(request_id, tc.name, tc.input, chat_id, sender_id)
                 memory.track_tool_call(tc.name)
+                tool_names.append(tc.name)
                 tool_use_results.append({
                     "type": "tool_result",
                     "tool_use_id": tc.id,
                     "content": result.output,
                     "is_error": not result.success,
                 })
+            if on_progress:
+                on_progress(tool_names)
 
             built = client.build_tool_results(tool_use_results)
             if isinstance(built, list):
