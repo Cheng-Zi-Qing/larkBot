@@ -129,11 +129,13 @@ def _process_message(
         handle_command(content, chat_id, request_id)
         return
 
+    send_reply(chat_id, "收到，处理中…", message_id)
+
     try:
         reply = agent.run(request_id, chat_id, content, sender_id=sender_id)
         if not reply or not reply.strip():
             reply = "（模型返回为空，请重新描述你的问题）"
-        send_reply(chat_id, reply, message_id)
+        send_reply(chat_id, reply)
     except Exception as e:
         logger.log_error(request_id, "bot", "AgentError", stderr=str(e))
         err_name = type(e).__name__
