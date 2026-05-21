@@ -111,3 +111,35 @@ def log_conversation(
             ),
         },
     )
+
+
+def log_doc_audit(
+    request_id: str,
+    chat_id: str,
+    user_id: str,
+    tool_name: str,
+    operation: str,
+    tool_input: dict,
+    success: bool,
+    output_id: str | None = None,
+    output_url: str | None = None,
+    duration_ms: float | None = None,
+    error: str | None = None,
+):
+    _append(
+        _log_path("doc_audit"),
+        {
+            "ts": _ts(),
+            "request_id": request_id,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "tool": tool_name,
+            "operation": operation,
+            "input": tool_input,
+            "success": success,
+            "output_id": output_id,
+            "output_url": output_url,
+            "duration_ms": round(duration_ms, 1) if duration_ms is not None else None,
+            "error": error[:500] if error else None,
+        },
+    )

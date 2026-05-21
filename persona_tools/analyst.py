@@ -27,6 +27,7 @@ _MARKET_SCANNER_SYSTEM = (
 
 def market_scanner(inputs: dict, context: dict) -> str:
     rid = context["request_id"]
+    cid, uid = context.get("chat_id", ""), context.get("user_id", "")
     market = inputs["market"]
     time_window = inputs.get("time_window", "month")
     lens = inputs.get("lens", "")
@@ -78,7 +79,7 @@ def market_scanner(inputs: dict, context: dict) -> str:
     result = llm_generate(prompt, _MARKET_SCANNER_SYSTEM)
 
     if inputs.get("save") and result:
-        doc_result = save_to_doc(rid, f"市场扫描: {market}", result)
+        doc_result = save_to_doc(rid, f"市场扫描: {market}", result, cid, uid)
         result += f"\n\n---\n文档已保存: {doc_result}"
 
     return result
@@ -124,6 +125,7 @@ _ACQUISITION_SYSTEM = (
 
 def acquisition_research(inputs: dict, context: dict) -> str:
     rid = context["request_id"]
+    cid, uid = context.get("chat_id", ""), context.get("user_id", "")
     target = inputs["target"]
     product = inputs.get("product", "")
     market = inputs.get("market", "")
@@ -173,7 +175,7 @@ def acquisition_research(inputs: dict, context: dict) -> str:
     result = llm_generate(prompt, _ACQUISITION_SYSTEM)
 
     if inputs.get("save") and result:
-        doc_result = save_to_doc(rid, f"拓客策略: {target}", result)
+        doc_result = save_to_doc(rid, f"拓客策略: {target}", result, cid, uid)
         result += f"\n\n---\n文档已保存: {doc_result}"
 
     return result

@@ -130,7 +130,7 @@ def _process_message(
         return
 
     try:
-        reply = agent.run(request_id, chat_id, content)
+        reply = agent.run(request_id, chat_id, content, sender_id=sender_id)
         if not reply or not reply.strip():
             reply = "（模型返回为空，请重新描述你的问题）"
         send_reply(chat_id, reply, message_id)

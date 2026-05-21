@@ -24,6 +24,7 @@ HIGH_RISK_TOOLS = {"create_doc", "write_table", "create_event", "create_task", "
 class HookContext:
     request_id: str = ""
     chat_id: str = ""
+    user_id: str = ""
     tool_name: str = ""
     tool_input: dict = field(default_factory=dict)
     messages: list[dict] = field(default_factory=list)
@@ -38,7 +39,7 @@ class HookContext:
 
     def with_error(self, error_type: str) -> HookContext:
         ctx = HookContext(
-            request_id=self.request_id, chat_id=self.chat_id,
+            request_id=self.request_id, chat_id=self.chat_id, user_id=self.user_id,
             tool_name=self.tool_name, tool_input=self.tool_input,
             messages=self.messages, reply_text=self.reply_text,
             exit_code=self.exit_code, stderr=self.stderr, stdout=self.stdout,
@@ -50,7 +51,7 @@ class HookContext:
 
     def with_result(self, proc, duration_ms: float) -> HookContext:
         ctx = HookContext(
-            request_id=self.request_id, chat_id=self.chat_id,
+            request_id=self.request_id, chat_id=self.chat_id, user_id=self.user_id,
             tool_name=self.tool_name, tool_input=self.tool_input,
             messages=self.messages, reply_text=self.reply_text,
             retry_count=self.retry_count,

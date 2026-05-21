@@ -24,6 +24,7 @@ _CONTENT_BRIEF_SYSTEM = (
 
 def content_research_brief(inputs: dict, context: dict) -> str:
     rid = context["request_id"]
+    cid, uid = context.get("chat_id", ""), context.get("user_id", "")
     topic = inputs["topic"]
     platforms = inputs.get("platforms", "")
     content_type = inputs.get("content_type", "")
@@ -75,7 +76,7 @@ def content_research_brief(inputs: dict, context: dict) -> str:
     result = llm_generate(prompt, _CONTENT_BRIEF_SYSTEM)
 
     if inputs.get("save") and result:
-        doc_result = save_to_doc(rid, f"内容策划: {topic}", result)
+        doc_result = save_to_doc(rid, f"内容策划: {topic}", result, cid, uid)
         result += f"\n\n---\n文档已保存: {doc_result}"
 
     return result
@@ -119,6 +120,7 @@ _CAMPAIGN_REPORT_SYSTEM = (
 
 def campaign_tracker(inputs: dict, context: dict) -> str:
     rid = context["request_id"]
+    cid, uid = context.get("chat_id", ""), context.get("user_id", "")
     campaign = inputs["campaign"]
     action = inputs.get("action", "report")
 

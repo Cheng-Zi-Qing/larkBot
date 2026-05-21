@@ -4,14 +4,20 @@ from __future__ import annotations
 from tools import execute_tool, ToolResult
 
 
-def call_tool(request_id: str, name: str, inputs: dict) -> str:
-    result: ToolResult = execute_tool(request_id, name, inputs)
+def call_tool(
+    request_id: str, name: str, inputs: dict,
+    chat_id: str = "", user_id: str = "",
+) -> str:
+    result: ToolResult = execute_tool(request_id, name, inputs, chat_id, user_id)
     return result.output
 
 
-def safe_call(request_id: str, name: str, inputs: dict) -> str:
+def safe_call(
+    request_id: str, name: str, inputs: dict,
+    chat_id: str = "", user_id: str = "",
+) -> str:
     try:
-        return call_tool(request_id, name, inputs)
+        return call_tool(request_id, name, inputs, chat_id, user_id)
     except Exception:
         return ""
 
@@ -30,6 +36,8 @@ def llm_generate(prompt: str, system: str) -> str:
     return response.text or ""
 
 
-def save_to_doc(request_id: str, title: str, content: str) -> str:
-    result = call_tool(request_id, "create_doc", {"title": title, "content": content})
-    return result
+def save_to_doc(
+    request_id: str, title: str, content: str,
+    chat_id: str = "", user_id: str = "",
+) -> str:
+    return call_tool(request_id, "create_doc", {"title": title, "content": content}, chat_id, user_id)

@@ -61,7 +61,7 @@ def _sanitize_messages(messages: list[dict]) -> list[dict]:
     return clean
 
 
-def run(request_id: str, chat_id: str, user_message: str) -> str:
+def run(request_id: str, chat_id: str, user_message: str, sender_id: str = "") -> str:
     hooks.fire("on_message_in", HookContext(request_id=request_id, chat_id=chat_id))
 
     rotated = memory.check_session_boundary()
@@ -79,7 +79,7 @@ def run(request_id: str, chat_id: str, user_message: str) -> str:
     hooks.fire("before_agent", HookContext(request_id=request_id, messages=messages))
 
     try:
-        return _agent_loop(request_id, chat_id, session_id, user_message, messages)
+        return _agent_loop(request_id, chat_id, sender_id, session_id, user_message, messages)
     except Exception as e:
         if "bad" not in type(e).__name__.lower():
             raise
@@ -87,12 +87,13 @@ def run(request_id: str, chat_id: str, user_message: str) -> str:
         with _history_lock:
             history[chat_id] = []
         messages = [{"role": "user", "content": user_message}]
-        return _agent_loop(request_id, chat_id, session_id, user_message, messages)
+        return _agent_loop(request_id, chat_id, sender_id, session_id, user_message, messages)
 
 
 def _agent_loop(
     request_id: str,
     chat_id: str,
+    sender_id: str,
     session_id: str,
     user_message: str,
     messages: list[dict],
@@ -130,7 +131,7 @@ def _agent_loop(
         elif response.stop_reason == "tool_use":
             tool_use_results = []
             for tc in response.tool_calls:
-                result = execute_tool(request_id, tc.name, tc.input)
+                result = execute_tool(request_id, tc.name, tc.input, chat_id, sender_id)
                 memory.track_tool_call(tc.name)
                 tool_use_results.append({
                     "type": "tool_result",

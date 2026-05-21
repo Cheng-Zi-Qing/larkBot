@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import inspect
+import json
+import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -31,6 +33,15 @@ class ToolDef:
 
 TOOL_REGISTRY: dict[str, ToolDef] = {}
 
+AUDIT_TOOLS: dict[str, str] = {
+    "create_doc": "create",
+    "write_table": "create",
+    "create_event": "create",
+    "create_task": "create",
+    "send_message": "create",
+    "reply_message": "create",
+}
+
 
 def register(tool: ToolDef):
     TOOL_REGISTRY[tool.name] = tool
@@ -46,13 +57,79 @@ def get_tool_definitions() -> list[dict]:
     return [t.claude_schema for t in TOOL_REGISTRY.values() if t.name in allowed_set]
 
 
-def execute_tool(request_id: str, tool_name: str, tool_input: dict) -> ToolResult:
+def _extract_doc_id(tool_name: str, output: str) -> tuple[str | None, str | None]:
+    try:
+        data = json.loads(output)
+    except (json.JSONDecodeError, TypeError):
+        return None, None
+
+    if not isinstance(data, dict):
+        return None, None
+
+    inner = data.get("data", data)
+
+    if tool_name == "create_doc":
+        doc = inner.get("document", inner)
+        doc_id = doc.get("document_id") or doc.get("doc_token")
+        url = doc.get("url")
+        if doc_id and not url:
+            url = f"https://wvixbzgc0u7.feishu.cn/docx/{doc_id}"
+        return doc_id, url
+
+    if tool_name == "write_table":
+        record = inner.get("record", inner)
+        return record.get("record_id"), None
+
+    if tool_name == "create_event":
+        event = inner.get("event", inner)
+        return event.get("event_id"), None
+
+    if tool_name == "create_task":
+        task = inner.get("task", inner)
+        return task.get("guid") or task.get("task_id"), None
+
+    if tool_name in ("send_message", "reply_message"):
+        return inner.get("message_id"), None
+
+    return None, None
+
+
+def _audit_if_needed(
+    tool_name: str, tool_input: dict, ctx: HookContext,
+    success: bool, output: str, duration_ms: float, error: str | None = None,
+):
+    operation = AUDIT_TOOLS.get(tool_name)
+    if not operation:
+        return
+    output_id, output_url = _extract_doc_id(tool_name, output) if success else (None, None)
+    logger.log_doc_audit(
+        request_id=ctx.request_id or "",
+        chat_id=ctx.chat_id or "",
+        user_id=ctx.user_id or "",
+        tool_name=tool_name,
+        operation=operation,
+        tool_input=tool_input,
+        success=success,
+        output_id=output_id,
+        output_url=output_url,
+        duration_ms=duration_ms,
+        error=error,
+    )
+
+
+def execute_tool(
+    request_id: str, tool_name: str, tool_input: dict,
+    chat_id: str = "", user_id: str = "",
+) -> ToolResult:
     if tool_name not in TOOL_REGISTRY:
         return ToolResult(output=f"Unknown tool: {tool_name}", success=False)
 
     tool_def = TOOL_REGISTRY[tool_name]
 
-    ctx = HookContext(request_id=request_id, tool_name=tool_name, tool_input=tool_input)
+    ctx = HookContext(
+        request_id=request_id, chat_id=chat_id, user_id=user_id,
+        tool_name=tool_name, tool_input=tool_input,
+    )
     hook_result = hooks.fire("before_tool", ctx)
     if hook_result.skip:
         return ToolResult(output=hook_result.override_output, success=True, cached=True)
@@ -67,7 +144,12 @@ def _execute_python_tool(
 ) -> ToolResult:
     start = time.monotonic()
     try:
-        context = {"request_id": request_id, "chat_id": ctx.chat_id, "persona": config.get_persona()}
+        context = {
+            "request_id": request_id,
+            "chat_id": ctx.chat_id,
+            "user_id": ctx.user_id,
+            "persona": config.get_persona(),
+        }
         sig = inspect.signature(tool_def.python_func)
         if len(sig.parameters) >= 2:
             output = tool_def.python_func(tool_input, context)
@@ -79,12 +161,14 @@ def _execute_python_tool(
             [f"python:{tool_def.name}"], _FakeProc(0, output, ""), duration_ms,
         )
         hooks.fire("after_tool", ctx.with_result(_FakeProc(0, output, ""), duration_ms))
+        _audit_if_needed(tool_def.name, tool_input, ctx, True, output, duration_ms)
         return ToolResult(output=output, success=True)
     except Exception as e:
         duration_ms = (time.monotonic() - start) * 1000
         error_msg = f"{type(e).__name__}: {e}"
         logger.log_error(request_id, tool_def.name, type(e).__name__, stderr=error_msg)
         hooks.fire("on_error", ctx.with_error(type(e).__name__))
+        _audit_if_needed(tool_def.name, tool_input, ctx, False, "", duration_ms, error=error_msg)
         return ToolResult(output=error_msg, success=False)
 
 
@@ -137,6 +221,10 @@ def _execute_cli_tool(
             ctx.retry_count += 1
             return _execute_cli_tool(request_id, tool_def, tool_input, ctx)
 
+        _audit_if_needed(
+            tool_def.name, tool_input, ctx, False, "",
+            duration_ms, error=proc.stderr[:500],
+        )
         return ToolResult(
             output=f"Error (exit {proc.returncode}): {proc.stderr[:500]}",
             success=False,
@@ -145,6 +233,7 @@ def _execute_cli_tool(
     result_ctx = ctx.with_result(proc, duration_ms)
     hooks.fire("after_tool", result_ctx)
 
+    _audit_if_needed(tool_def.name, tool_input, ctx, True, proc.stdout, duration_ms)
     return ToolResult(output=proc.stdout, success=True)
 
 

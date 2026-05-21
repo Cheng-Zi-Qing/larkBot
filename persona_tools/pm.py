@@ -24,6 +24,7 @@ _COMPETITIVE_SYSTEM = (
 
 def competitive_landscape(inputs: dict, context: dict) -> str:
     rid = context["request_id"]
+    cid, uid = context.get("chat_id", ""), context.get("user_id", "")
     product = inputs["product"]
     focus = inputs.get("focus", "")
 
@@ -62,7 +63,7 @@ def competitive_landscape(inputs: dict, context: dict) -> str:
     result = llm_generate(prompt, _COMPETITIVE_SYSTEM)
 
     if inputs.get("save") and result:
-        doc_result = save_to_doc(rid, f"竞品分析: {product}", result)
+        doc_result = save_to_doc(rid, f"竞品分析: {product}", result, cid, uid)
         result += f"\n\n---\n文档已保存: {doc_result}"
 
     return result
@@ -107,6 +108,7 @@ _PRD_SYSTEM = (
 
 def generate_prd(inputs: dict, context: dict) -> str:
     rid = context["request_id"]
+    cid, uid = context.get("chat_id", ""), context.get("user_id", "")
     feature = inputs["feature"]
     detail = inputs.get("detail", "")
 
@@ -142,7 +144,7 @@ def generate_prd(inputs: dict, context: dict) -> str:
     result = llm_generate(prompt, _PRD_SYSTEM)
 
     if inputs.get("save") and result:
-        doc_result = save_to_doc(rid, f"PRD: {feature}", result)
+        doc_result = save_to_doc(rid, f"PRD: {feature}", result, cid, uid)
         result += f"\n\n---\n文档已保存: {doc_result}"
 
     return result

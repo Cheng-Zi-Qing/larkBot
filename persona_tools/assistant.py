@@ -24,6 +24,7 @@ _MEETING_DIGEST_SYSTEM = (
 
 def meeting_digest(inputs: dict, context: dict) -> str:
     rid = context["request_id"]
+    cid, uid = context.get("chat_id", ""), context.get("user_id", "")
     start = inputs.get("start", "")
     end = inputs.get("end", "")
     chat_id = inputs.get("chat_id", "")
@@ -56,7 +57,7 @@ def meeting_digest(inputs: dict, context: dict) -> str:
 
     if inputs.get("save") and result:
         title = f"会议纪要 {start or '今日'}"
-        doc_result = save_to_doc(rid, title, result)
+        doc_result = save_to_doc(rid, title, result, cid, uid)
         result += f"\n\n---\n文档已保存: {doc_result}"
 
     return result
@@ -99,6 +100,7 @@ _WEEKLY_REPORT_SYSTEM = (
 
 def weekly_report_builder(inputs: dict, context: dict) -> str:
     rid = context["request_id"]
+    cid, uid = context.get("chat_id", ""), context.get("user_id", "")
     period = inputs.get("period", "this_week")
     focus = inputs.get("focus", "")
 
@@ -134,7 +136,7 @@ def weekly_report_builder(inputs: dict, context: dict) -> str:
 
     if inputs.get("save") and result:
         title = f"周报 ({period})"
-        doc_result = save_to_doc(rid, title, result)
+        doc_result = save_to_doc(rid, title, result, cid, uid)
         result += f"\n\n---\n文档已保存: {doc_result}"
 
     return result
