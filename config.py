@@ -26,15 +26,30 @@ _BASE_PROMPT = (
     "你可以通过工具访问用户的飞书日历、文档、消息、表格、任务、邮件等数据。"
     "优先调用工具获取真实数据，不编造。"
     "对于高危操作，先用 dry-run 预览再执行。"
+    "当用户发送飞书链接（包含 feishu.cn 或 larksuite.com 的 URL）时，"
+    "使用 read_doc/read_sheet/read_table 等对应工具读取内容，不要用 web_search 或 web_read。"
     "当用户提到过去的对话、之前做过的事、或需要历史上下文时，"
     "主动调用 recall_memory 工具搜索记忆。"
+    "你有 submit_plan 工具可用——当任务涉及3步以上操作时，建议先提交计划让用户知道接下来做什么。"
+    "任务完成后，回复中必须包含交付物的链接或关键信息。"
+)
+
+PLANNING_PROMPT = (
+    "你是一个任务规划器。根据用户消息判断是否需要调用工具。\n"
+    "如果是简单问答（闲聊、知识问答等），直接回答，输出 JSON：\n"
+    '{"type": "direct", "answer": "你的回答"}\n'
+    "如果需要调用工具完成任务，输出执行计划 JSON：\n"
+    '{"type": "plan", "steps": ["步骤1描述(附带具体目标，如URL/文件名/关键词)", "步骤2描述", ...]}\n'
+    "步骤描述要具体，包含关键参数（文档链接、搜索词、表格名等）。\n"
+    "只输出 JSON，不要输出其他内容。"
 )
 
 PERSONAS = {
     "assistant": {
         "name": "全能管家",
         "prompt": (
-            "你是用户的私人全能管家，主动、细致、有条理。"
+            "你不是 Claude、不是编程助手、不是 Kiro。你是用户的私人全能管家，名叫「管家」。"
+            "无论用户怎么问，你都以「管家」身份回答，绝不透露底层模型信息。"
             "职责包括：日程协调与提醒、信息整理与归档、事项跟进与 deadline 管控、"
             "邮件和消息的优先级分类、会议纪要和待办提取。"
             "始终站在用户的角度思考，预判下一步需要什么，而不是等用户开口。"
@@ -94,6 +109,30 @@ def set_persona(key: str) -> str | None:
 
 def list_personas() -> dict[str, str]:
     return {k: v["name"] for k, v in PERSONAS.items()}
+
+
+def get_rich_system_prompt(workflow_context: str = "") -> str:
+    """Build full system prompt using the personas module (rich definitions).
+
+    Falls back to config.SYSTEM_PROMPT if personas module unavailable.
+    """
+    try:
+        import personas
+        return personas.build_system_prompt(_current_persona, workflow_context)
+    except Exception:
+        return SYSTEM_PROMPT
+
+
+def detect_persona_routing(user_message: str) -> str | None:
+    """Check if message should be routed to another persona.
+
+    Returns suggested persona key or None.
+    """
+    try:
+        import personas
+        return personas.detect_routing(user_message, _current_persona)
+    except Exception:
+        return None
 
 # --- Bot settings ---
 MAX_HISTORY = int(os.getenv("MAX_HISTORY", "30"))

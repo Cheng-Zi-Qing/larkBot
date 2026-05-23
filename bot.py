@@ -15,6 +15,7 @@ import logger
 import web_tools  # noqa: F401 — registers web tools
 import memory  # noqa: F401 — registers recall_memory tool
 import persona_tools  # noqa: F401 — registers persona tools
+import plan_tool  # noqa: F401 — registers submit_plan tool
 from hooks import HookContext
 
 TOOL_LABELS: dict[str, str] = {
@@ -98,6 +99,7 @@ TOOL_LABELS: dict[str, str] = {
     "market_scanner": "市场扫描",
     "acquisition_research": "获客研究",
     "recall_memory": "回忆记忆",
+    "submit_plan": "制定计划",
 }
 
 
@@ -212,13 +214,19 @@ def _process_message(
         handle_command(content, chat_id, request_id)
         return
 
-    send_reply(chat_id, "收到，处理中…", message_id)
-
     try:
         reply = agent.run(request_id, chat_id, content, sender_id=sender_id,
-                          on_progress=_make_progress_cb(chat_id))
+                          on_progress=_make_progress_cb(chat_id),
+                          on_plan=_make_plan_cb(chat_id))
         if not reply or not reply.strip():
             reply = "（模型返回为空，请重新描述你的问题）"
+
+        # Routing suggestion: hint user if another persona is better suited
+        suggested = config.detect_persona_routing(content)
+        if suggested:
+            persona_name = config.PERSONAS.get(suggested, {}).get("name", suggested)
+            reply += f"\n\n💡 这类问题切换到 /{suggested}（{persona_name}）可能效果更好"
+
         send_reply(chat_id, reply)
     except Exception as e:
         logger.log_error(request_id, "bot", "AgentError", stderr=str(e))
@@ -228,6 +236,8 @@ def _process_message(
             send_reply(chat_id, "当前请求太频繁，请稍等片刻再试。")
         elif "timeout" in err_name.lower():
             send_reply(chat_id, "请求超时了，请稍后再试。")
+        elif "content-blocked" in err_detail or "content_blocked" in err_detail:
+            send_reply(chat_id, "请求被上游服务拦截，请稍后重试。如持续出现请联系管理员。")
         else:
             send_reply(chat_id, f"处理失败（{err_name}）：{err_detail}")
 
@@ -238,16 +248,64 @@ _executor = ThreadPoolExecutor(max_workers=4)
 def _make_progress_cb(chat_id: str):
     last_ts = 0.0
 
-    def _on_progress(tool_names: list[str]):
+    def _on_progress(tool_names: list[str], tool_inputs: list[dict],
+                     step: int, total: int, plan_steps: list[str] | None,
+                     thought: str = ""):
         nonlocal last_ts
         now = time.time()
         if now - last_ts < 3.0:
             return
         last_ts = now
-        labels = [TOOL_LABELS.get(n, n) for n in tool_names]
-        send_reply(chat_id, "⏳ " + " → ".join(labels))
+
+        lines: list[str] = []
+
+        # Thought line — show model's reasoning (truncated)
+        if thought:
+            t = thought.strip().replace("\n", " ")
+            if len(t) > 80:
+                t = t[:77] + "..."
+            lines.append(f"💭 {t}")
+
+        # Action line — what tool is being called
+        details = []
+        for name, inp in zip(tool_names, tool_inputs):
+            label = TOOL_LABELS.get(name, name)
+            detail = _extract_detail(inp)
+            details.append(f"{label} {detail}" if detail else label)
+
+        progress_prefix = f"[{step}/{total}]" if total > 0 else f"[第{step}步]"
+        lines.append(f"📎 {progress_prefix} " + "、".join(details))
+
+        send_reply(chat_id, "\n".join(lines))
 
     return _on_progress
+
+
+def _extract_detail(inp: dict) -> str:
+    """Extract key info from tool input for display."""
+    for key in ("doc", "url", "sheet", "app_token", "link"):
+        val = inp.get(key, "")
+        if val:
+            # Truncate long URLs
+            return val if len(val) <= 50 else val[:47] + "..."
+    for key in ("query", "keyword", "content"):
+        val = inp.get(key, "")
+        if val:
+            return f"「{val[:20]}」" if len(val) > 20 else f"「{val}」"
+    for key in ("title", "name", "subject"):
+        val = inp.get(key, "")
+        if val:
+            return val[:30]
+    return ""
+
+
+def _make_plan_cb(chat_id: str):
+    def _on_plan(steps: list[str]):
+        lines = ["📋 执行计划:"]
+        for i, step in enumerate(steps, 1):
+            lines.append(f"{i}. {step}")
+        send_reply(chat_id, "\n".join(lines))
+    return _on_plan
 
 
 def main():

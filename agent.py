@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from collections import defaultdict
 
@@ -8,6 +9,7 @@ import hooks
 import llm
 import logger
 import memory
+import workflows
 from hooks import HookContext
 from tools import execute_tool, get_tool_definitions
 
@@ -61,7 +63,9 @@ def _sanitize_messages(messages: list[dict]) -> list[dict]:
     return clean
 
 
-def run(request_id: str, chat_id: str, user_message: str, sender_id: str = "", on_progress=None) -> str:
+
+def run(request_id: str, chat_id: str, user_message: str, sender_id: str = "",
+        on_progress=None, on_plan=None) -> str:
     hooks.fire("on_message_in", HookContext(request_id=request_id, chat_id=chat_id))
 
     rotated = memory.check_session_boundary()
@@ -73,21 +77,41 @@ def run(request_id: str, chat_id: str, user_message: str, sender_id: str = "", o
         if not history.get(chat_id):
             history[chat_id] = _sanitize_messages(memory.load_session_messages(session_id))
         messages = list(history.get(chat_id, []))
-    messages.append({"role": "user", "content": user_message})
-    memory.persist_message(session_id, "user", user_message)
 
     hooks.fire("before_agent", HookContext(request_id=request_id, messages=messages))
 
+    messages.append({"role": "user", "content": user_message})
+    memory.persist_message(session_id, "user", user_message)
+
     try:
-        return _agent_loop(request_id, chat_id, sender_id, session_id, user_message, messages, on_progress)
+        return _agent_loop(request_id, chat_id, sender_id, session_id, user_message,
+                           messages, on_progress, on_plan)
     except Exception as e:
         if "bad" not in type(e).__name__.lower():
             raise
-        logger.log_error(request_id, "agent", "HistoryCorrupted", stderr=str(e))
+        logger.log_error(request_id, "agent", "BadRequest_retry", stderr=str(e))
         with _history_lock:
             history[chat_id] = []
         messages = [{"role": "user", "content": user_message}]
-        return _agent_loop(request_id, chat_id, sender_id, session_id, user_message, messages, on_progress)
+        try:
+            return _agent_loop(request_id, chat_id, sender_id, session_id, user_message,
+                               messages, on_progress, on_plan)
+        except Exception as e2:
+            if "content-blocked" not in str(e2) and "content_blocked" not in str(e2):
+                raise
+            logger.log_error(request_id, "agent", "ContentBlocked_fallback", stderr=str(e2))
+            client = llm.get_client()
+            wf_ctx = ""
+            wf_fallback = workflows.match(user_message, config.get_persona())
+            if wf_fallback:
+                wf_ctx = workflows.build_workflow_context(wf_fallback, user_message)
+            resp = client.chat(
+                messages=[{"role": "user", "content": user_message}],
+                system=config.get_rich_system_prompt(wf_ctx),
+                tools=[],
+                model=config.LLM_MODEL,
+            )
+            return resp.text or "抱歉，处理遇到问题，请稍后重试。"
 
 
 def _agent_loop(
@@ -98,14 +122,26 @@ def _agent_loop(
     user_message: str,
     messages: list[dict],
     on_progress=None,
+    on_plan=None,
 ) -> str:
     client = llm.get_client()
     collected_text: list[str] = []
+    step_counter = 0
+    total_steps = 0
+    plan_steps: list[str] = []
+    fail_counts: dict[str, int] = {}
+
+    # Workflow matching: inject steps/template into system prompt if matched
+    workflow_context = ""
+    wf = workflows.match(user_message, config.get_persona())
+    if wf:
+        workflow_context = workflows.build_workflow_context(wf, user_message)
+    system_prompt = config.get_rich_system_prompt(workflow_context)
 
     for _ in range(config.MAX_AGENT_ROUNDS):
         response = client.chat(
             messages=messages,
-            system=config.SYSTEM_PROMPT,
+            system=system_prompt,
             tools=get_tool_definitions(),
             model=config.LLM_MODEL,
         )
@@ -114,10 +150,9 @@ def _agent_loop(
         messages.append(assistant_msg)
         memory.persist_message(session_id, "assistant", assistant_msg.get("content", ""))
 
-        if response.text:
-            collected_text.append(response.text)
-
         if response.stop_reason == "end_turn":
+            if response.text:
+                collected_text.append(response.text)
             reply_text = "\n\n".join(collected_text)
 
             hook_result = hooks.fire(
@@ -134,20 +169,49 @@ def _agent_loop(
             return reply_text
 
         elif response.stop_reason == "tool_use":
+            thought = response.text or ""
             tool_use_results = []
             tool_names = []
+            tool_inputs = []
             for tc in response.tool_calls:
+                if tc.name == "submit_plan":
+                    steps = tc.input.get("steps", [])
+                    if steps:
+                        plan_steps = steps
+                        total_steps = len(plan_steps)
+                        if on_plan:
+                            on_plan(plan_steps)
+                    tool_use_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tc.id,
+                        "content": "计划已提交，请开始执行。",
+                        "is_error": False,
+                    })
+                    continue
                 result = execute_tool(request_id, tc.name, tc.input, chat_id, sender_id)
                 memory.track_tool_call(tc.name)
                 tool_names.append(tc.name)
+                tool_inputs.append(tc.input)
+
+                if not result.success:
+                    fail_counts[tc.name] = fail_counts.get(tc.name, 0) + 1
+                    output = result.output
+                    if fail_counts[tc.name] >= 2:
+                        output += "\n[系统提示] 此工具已连续失败2次，请换一种方式完成任务或告知用户无法完成。"
+                else:
+                    fail_counts[tc.name] = 0
+                    output = result.output
+
                 tool_use_results.append({
                     "type": "tool_result",
                     "tool_use_id": tc.id,
-                    "content": result.output,
+                    "content": output,
                     "is_error": not result.success,
                 })
-            if on_progress:
-                on_progress(tool_names)
+            if tool_names:
+                step_counter += 1
+                if on_progress:
+                    on_progress(tool_names, tool_inputs, step_counter, total_steps, plan_steps, thought)
 
             built = client.build_tool_results(tool_use_results)
             if isinstance(built, list):

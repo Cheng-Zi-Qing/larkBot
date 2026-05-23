@@ -31,3 +31,9 @@ clean:
 
 test-llm:
 	python3 test_llm.py
+
+test-dry:
+	python3 test_agent.py --dry
+
+test-agent:
+	python3 test_agent.py

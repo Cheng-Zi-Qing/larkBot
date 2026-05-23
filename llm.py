@@ -99,7 +99,18 @@ def _openai_messages(messages: list[dict], system: str) -> list[dict]:
                 m["tool_calls"] = tool_calls
             out.append(m)
         elif role == "assistant" and isinstance(content, str):
-            out.append({"role": "assistant", "content": content})
+            m2: dict[str, Any] = {"role": "assistant", "content": content}
+            if msg.get("reasoning_content"):
+                m2["reasoning_content"] = msg["reasoning_content"]
+            if msg.get("tool_calls"):
+                m2["tool_calls"] = msg["tool_calls"]
+            out.append(m2)
+        elif role == "tool" and msg.get("tool_call_id"):
+            out.append({
+                "role": "tool",
+                "tool_call_id": msg["tool_call_id"],
+                "content": content or "",
+            })
         else:
             out.append({"role": role, "content": content})
 
@@ -224,6 +235,8 @@ class OpenAIClient:
     def build_assistant_message(self, response: LLMResponse) -> dict:
         choice = response.raw.choices[0]
         msg: dict[str, Any] = {"role": "assistant", "content": choice.message.content}
+        if getattr(choice.message, "reasoning_content", None):
+            msg["reasoning_content"] = choice.message.reasoning_content
         if choice.message.tool_calls:
             msg["tool_calls"] = [
                 {
