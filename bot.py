@@ -274,6 +274,8 @@ def _make_progress_cb(chat_id: str):
             details.append(f"{label} {detail}" if detail else label)
 
         progress_prefix = f"[{step}/{total}]" if total > 0 else f"[第{step}步]"
+        if total > 0 and step > total:
+            progress_prefix = f"[额外第{step - total}步]"
         lines.append(f"📎 {progress_prefix} " + "、".join(details))
 
         send_reply(chat_id, "\n".join(lines))

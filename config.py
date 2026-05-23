@@ -30,8 +30,14 @@ _BASE_PROMPT = (
     "使用 read_doc/read_sheet/read_table 等对应工具读取内容，不要用 web_search 或 web_read。"
     "当用户提到过去的对话、之前做过的事、或需要历史上下文时，"
     "主动调用 recall_memory 工具搜索记忆。"
-    "你有 submit_plan 工具可用——当任务涉及3步以上操作时，建议先提交计划让用户知道接下来做什么。"
+    "你有 submit_plan 工具可用——当任务涉及3步以上操作时，必须先提交计划等用户确认后再执行。"
     "任务完成后，回复中必须包含交付物的链接或关键信息。"
+    "\n[文档链接格式] 创建/编辑飞书文档时插入链接："
+    "默认 XML 格式用 <a href=\"URL\">显示文字</a>；"
+    "Markdown 格式用 [显示文字](URL)。"
+    "链接预览卡片用 <a type=\"url-preview\" href=\"URL\">标题</a>；"
+    "书签块用 <bookmark name=\"标题\" href=\"URL\"></bookmark>。"
+    "绝对不要用纯文本 URL 或错误的链接语法。"
 )
 
 PLANNING_PROMPT = (

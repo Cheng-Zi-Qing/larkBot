@@ -363,18 +363,27 @@ register(ToolDef(
 
 register(ToolDef(
     name="create_doc",
-    description="创建飞书文档",
+    description=(
+        "创建飞书文档。默认使用 XML 格式（支持富文本），也可用 markdown。"
+        "链接语法：XML 用 <a href=\"URL\">文字</a>，Markdown 用 [文字](URL)。"
+        "链接预览卡片：<a type=\"url-preview\" href=\"URL\">标题</a>。"
+    ),
     identity="user",
     category="write",
-    claude_schema=_schema("create_doc", "Create a new Lark document with markdown content", {
+    claude_schema=_schema("create_doc", "Create a new Lark document. Default XML format supports rich elements; use doc_format=markdown for simple docs. Links: <a href=\"URL\">text</a> in XML, [text](url) in markdown.", {
         "title": {"type": "string", "description": "Document title"},
-        "content": {"type": "string", "description": "Document body in markdown"},
+        "content": {"type": "string", "description": "Document body. XML (default): use <p>, <h1>, <a href>, <table> etc. Markdown: standard syntax."},
+        "doc_format": {
+            "type": "string",
+            "description": "Content format: xml (default, richer) | markdown",
+            "enum": ["xml", "markdown"],
+        },
     }, ["title", "content"]),
     build_command=lambda i: [
         "lark-cli", "docs", "+create", "--as", "user",
-        "--api-version", "v2", "--doc-format", "markdown",
-        "--content", f"<title>{i['title']}</title>\n{i['content']}",
-    ],
+        "--api-version", "v2",
+        "--content", f"<title>{i['title']}</title>\n{i['content']}" if not i.get("doc_format") or i.get("doc_format") == "xml" else f"# {i['title']}\n\n{i['content']}",
+    ] + (["--doc-format", i["doc_format"]] if i.get("doc_format") else []),
 ))
 
 register(ToolDef(
@@ -392,29 +401,40 @@ register(ToolDef(
 
 register(ToolDef(
     name="edit_doc",
-    description="编辑已有飞书文档（追加、覆盖或替换指定内容）",
+    description=(
+        "编辑已有飞书文档。支持追加、覆盖、文本替换三种模式。"
+        "链接格式：XML 模式用 <a href=\"URL\">文字</a>，Markdown 模式用 [文字](URL)。"
+        "链接预览卡片：<a type=\"url-preview\" href=\"URL\">标题</a>。"
+        "书签块：<bookmark name=\"标题\" href=\"URL\"></bookmark>。"
+        "注意：str_replace 的 pattern 在 XML 模式下只能行内匹配，跨行匹配请用 doc_format=markdown。"
+    ),
     identity="user",
     category="write",
-    claude_schema=_schema("edit_doc", "Edit an existing Lark document. Modes: append (add to end), overwrite (replace all content), replace_all (find-and-replace by selection locator).", {
+    claude_schema=_schema("edit_doc", "Edit an existing Lark document. Commands: append (add to end), overwrite (replace all), str_replace (find-and-replace text). For links use <a href=\"URL\">text</a> in XML or [text](url) in markdown.", {
         "doc": {"type": "string", "description": "Document ID or URL"},
-        "content": {"type": "string", "description": "New content in markdown"},
-        "mode": {
+        "content": {"type": "string", "description": "New content (XML default, or markdown if doc_format=markdown). Links: <a href=\"URL\">text</a> or [text](url)"},
+        "command": {
             "type": "string",
-            "description": "Edit mode: append | overwrite | replace_all",
-            "enum": ["append", "overwrite", "replace_all"],
+            "description": "Edit command: append | overwrite | str_replace",
+            "enum": ["append", "overwrite", "str_replace"],
+        },
+        "pattern": {"type": "string", "description": "For str_replace: text to find. Supports '前缀...后缀' ellipsis syntax in markdown mode for cross-line matching"},
+        "doc_format": {
+            "type": "string",
+            "description": "Content format: xml (default, supports rich formatting) | markdown (simpler, supports cross-line str_replace)",
+            "enum": ["xml", "markdown"],
         },
         "new_title": {"type": "string", "description": "Optional: also update the document title"},
-        "selection": {"type": "string", "description": "For replace_all: locate content to replace, e.g. '## Section' (title) or 'start...end' (range)"},
-    }, ["doc", "content", "mode"]),
+    }, ["doc", "content", "command"]),
     build_command=lambda i: [
         "lark-cli", "docs", "+update", "--as", "user",
         "--api-version", "v2",
         "--doc", i["doc"],
-        "--mode", i["mode"],
-        "--markdown", i["content"],
-    ] + (["--new-title", i["new_title"]] if i.get("new_title") else [])
-      + (["--selection-by-title", i["selection"]] if i.get("selection") and not ("..." in i.get("selection", "")) else [])
-      + (["--selection-with-ellipsis", i["selection"]] if i.get("selection") and "..." in i.get("selection", "") else []),
+        "--command", i["command"],
+        "--content", i["content"],
+    ] + (["--doc-format", i["doc_format"]] if i.get("doc_format") else [])
+      + (["--pattern", i["pattern"]] if i.get("pattern") else [])
+      + (["--new-title", i["new_title"]] if i.get("new_title") else []),
 ))
 
 register(ToolDef(

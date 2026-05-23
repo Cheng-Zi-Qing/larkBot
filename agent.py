@@ -173,18 +173,20 @@ def _agent_loop(
             tool_use_results = []
             tool_names = []
             tool_inputs = []
+            plan_submitted_this_round = False
             for tc in response.tool_calls:
                 if tc.name == "submit_plan":
                     steps = tc.input.get("steps", [])
                     if steps:
                         plan_steps = steps
                         total_steps = len(plan_steps)
+                        plan_submitted_this_round = True
                         if on_plan:
                             on_plan(plan_steps)
                     tool_use_results.append({
                         "type": "tool_result",
                         "tool_use_id": tc.id,
-                        "content": "计划已提交，请开始执行。",
+                        "content": "计划已发送给用户，等待用户确认后再执行。在用户回复确认之前不要执行任何工具。",
                         "is_error": False,
                     })
                     continue
@@ -210,8 +212,35 @@ def _agent_loop(
                 })
             if tool_names:
                 step_counter += 1
+                # Notify user and LLM when exceeding planned steps
+                if total_steps > 0 and step_counter > total_steps:
+                    overshoot_hint = (
+                        f"\n[系统提示] 当前已执行第{step_counter}步，超出原计划的{total_steps}步。"
+                        "请告知用户需要额外步骤及原因，并继续完成任务。"
+                    )
+                    tool_use_results[-1]["content"] += overshoot_hint
                 if on_progress:
                     on_progress(tool_names, tool_inputs, step_counter, total_steps, plan_steps, thought)
+
+            # If plan was just submitted, pause and ask user to confirm
+            if plan_submitted_this_round and not tool_names:
+                built = client.build_tool_results(tool_use_results)
+                if isinstance(built, list):
+                    messages.extend(built)
+                    for msg in built:
+                        memory.persist_message(session_id, msg.get("role", "user"), msg.get("content", ""))
+                else:
+                    messages.append(built)
+                    memory.persist_message(session_id, built.get("role", "user"), built.get("content", ""))
+
+                confirm_text = "📋 以上是我的执行计划，确认后我将开始执行。\n（回复「执行」「好的」「确认」等继续，或告诉我需要调整的地方）"
+                messages.append({"role": "assistant", "content": confirm_text})
+                memory.persist_message(session_id, "assistant", confirm_text)
+
+                with _history_lock:
+                    history[chat_id] = messages
+                    _trim_history(chat_id)
+                return confirm_text
 
             built = client.build_tool_results(tool_use_results)
             if isinstance(built, list):
