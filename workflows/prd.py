@@ -34,3 +34,29 @@ register(WorkflowDef(
         "## 8. 里程碑（阶段/交付物/时间/验收标准）"
     ),
 ))
+
+register(WorkflowDef(
+    id="gtm",
+    name="GTM 策略",
+    persona="pm",
+    trigger_patterns=[
+        "gtm", "go-to-market", "go to market", "上市策略",
+        "市场进入", "gtm策略",
+    ],
+    steps=[
+        "搜索目标市场和客户画像",
+        "评估 GTM 路径：PLG（自助/低客单）vs SLG（高客单/定制）vs 混合",
+        "搜索竞品 GTM 策略和渠道",
+        "客户旅程映射：Awareness→Consideration→Decision→Onboarding→Adoption→Expansion→Advocacy",
+        "输出 GTM 方案 + 渠道矩阵 + 里程碑",
+    ],
+    tools_hint=["web_research", "web_search", "search_docs", "recall_memory"],
+    output_template=(
+        "## GTM 路径评估（PLG/SLG/混合 + 评分）\n"
+        "## 目标客户画像（ICP）\n"
+        "## 客户旅程映射（阶段/触点/内容/指标）\n"
+        "## 渠道矩阵（渠道/覆盖/成本/适配度）\n"
+        "## 竞品 GTM 对比\n"
+        "## 里程碑（阶段/目标/关键动作/时间）"
+    ),
+))

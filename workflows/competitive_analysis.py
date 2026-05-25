@@ -59,3 +59,53 @@ register(WorkflowDef(
         "## 常见客户反对意见 & 应对"
     ),
 ))
+
+register(WorkflowDef(
+    id="beachhead",
+    name="Beachhead 市场选择",
+    persona="pm",
+    trigger_patterns=[
+        "beachhead", "目标市场", "市场选择", "滩头市场",
+        "市场优先级",
+    ],
+    steps=[
+        "搜索候选细分市场信息",
+        "5 维评分：规模 / 触达难度 / 紧迫度 / LTV / 竞争强度",
+        "选总分最高且竞争≤3 的市场作为 Beachhead",
+        "搜索 Beachhead 市场的 ICP 和决策者画像",
+        "输出市场选择矩阵 + 推荐 Beachhead + 进入策略",
+    ],
+    tools_hint=["web_research", "web_search", "search_docs"],
+    output_template=(
+        "## 候选市场列表\n"
+        "## 5 维评分矩阵（市场/规模/触达/紧迫度/LTV/竞争/总分）\n"
+        "## 推荐 Beachhead 市场 + 理由\n"
+        "## Beachhead ICP 画像\n"
+        "## 进入策略与第一步行动"
+    ),
+))
+
+register(WorkflowDef(
+    id="pricing",
+    name="定价策略分析",
+    persona="pm",
+    trigger_patterns=[
+        "定价", "pricing", "价格策略", "定价对比",
+        "价格分析", "定价模型",
+    ],
+    steps=[
+        "搜索竞对定价页和套餐信息",
+        "搜索行业定价模型（token/订阅/按效果/混合）",
+        "搜索客户付费意愿和价格敏感度",
+        "横评对比：竞对定价矩阵",
+        "输出定价建议（模型 + 价格带 + 单位经济验证）",
+    ],
+    tools_hint=["web_research", "web_search", "web_read", "search_docs"],
+    output_template=(
+        "## 竞对定价矩阵（产品/模型/免费额度/付费起步/企业版）\n"
+        "## 行业定价模型对比（按token/订阅/效果/混合）\n"
+        "## 付费意愿分析\n"
+        "## 单位经济验证（LTV/CAC/毛利率）\n"
+        "## 定价建议（推荐模型 + 价格带 + 理由）"
+    ),
+))

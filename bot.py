@@ -163,6 +163,24 @@ def send_reply(chat_id: str, text: str, reply_to: str | None = None):
 
 def handle_command(content: str, chat_id: str, request_id: str):
     cmd = content.strip().lower()
+    # /assis* aliases: map to persona key and optionally forward remaining text as message
+    _ASSIS_MAP = {
+        "/assis-a": "analyst",
+        "/assis-p": "pm",
+        "/assis-o": "ops",
+        "/assis": "assistant",
+    }
+    for prefix, persona_key in _ASSIS_MAP.items():
+        if cmd == prefix or cmd.startswith(prefix + " "):
+            name = config.set_persona(persona_key)
+            remainder = content.strip()[len(prefix):].strip()
+            if remainder:
+                send_reply(chat_id, f"已切换为: {name}")
+                # Forward remaining text as a user message
+                handle_message({"chat_id": chat_id, "sender_id": "", "content": remainder, "message_id": ""})
+            else:
+                send_reply(chat_id, f"已切换为: {name}")
+            return
     if cmd == "/reload-hooks":
         hooks.reload_custom_hooks()
         send_reply(chat_id, "Hooks reloaded.")
@@ -176,6 +194,8 @@ def handle_command(content: str, chat_id: str, request_id: str):
         lines = ["当前角色：" + config.PERSONAS[config.get_persona()]["name"], ""]
         for key, name in config.list_personas().items():
             lines.append(f"  /{key} — {name}")
+        lines.append("")
+        lines.append("别名：/assis /assis-a /assis-p /assis-o")
         send_reply(chat_id, "\n".join(lines))
     elif cmd.lstrip("/") in config.PERSONAS:
         key = cmd.lstrip("/")

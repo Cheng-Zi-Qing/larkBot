@@ -78,3 +78,26 @@ register(WorkflowDef(
         "## 🎯 今日重点"
     ),
 ))
+
+register(WorkflowDef(
+    id="todo_sync",
+    name="待办同步",
+    persona="assistant",
+    trigger_patterns=[
+        "待办同步", "同步待办", "任务同步", "todo sync",
+        "整理待办", "待办事项",
+    ],
+    steps=[
+        "获取飞书任务列表（get_my_tasks）",
+        "搜索聊天中提到的 action items（search_messages）",
+        "回忆历史对话中的待办（recall_memory）",
+        "合并去重 + 按优先级排序",
+        "输出待办汇总 + 识别过期/遗漏项",
+    ],
+    tools_hint=["get_my_tasks", "search_messages", "search_tasks", "recall_memory"],
+    output_template=(
+        "## 📋 待办汇总（优先级/事项/来源/截止日/状态）\n"
+        "## ⚠️ 过期/遗漏项\n"
+        "## 💡 建议（合并/拆分/委派）"
+    ),
+))

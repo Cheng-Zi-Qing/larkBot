@@ -59,3 +59,56 @@ register(WorkflowDef(
         "## 增长实验设计（实验名/假设/指标/时长/预算）"
     ),
 ))
+
+register(WorkflowDef(
+    id="campaign_track",
+    name="活动追踪",
+    persona="ops",
+    trigger_patterns=[
+        "活动追踪", "活动策划", "campaign", "活动方案",
+        "活动跟踪", "活动执行",
+    ],
+    steps=[
+        "搜索活动目标和预算信息",
+        "搜索竞品/行业活动参考",
+        "按 AARRR 漏斗设计活动方案",
+        "输出任务清单（任务/负责人/截止/状态/优先级）",
+        "设定关键指标和追踪方式",
+        "写入 workspace/deliverables/ops/{campaign}-tracker.md",
+    ],
+    tools_hint=["web_search", "search_docs", "search_messages", "create_doc"],
+    output_template=(
+        "## 活动概述（目标/时间/预算/受众）\n"
+        "## AARRR 漏斗设计\n"
+        "## 任务清单（任务/负责人/截止/状态/优先级）\n"
+        "## 渠道分发计划\n"
+        "## 关键指标 & 追踪方式\n"
+        "## 风险预案"
+    ),
+))
+
+register(WorkflowDef(
+    id="channel_analysis",
+    name="获客渠道分析",
+    persona="ops",
+    trigger_patterns=[
+        "渠道分析", "渠道评估", "channel analysis",
+        "获客渠道", "渠道选择",
+    ],
+    steps=[
+        "搜索目标行业主流获客渠道",
+        "搜索竞品渠道策略",
+        "Bull's Eye 框架筛选：外圈（可能渠道）→ 中圈（值得测试）→ 靶心（核心渠道）",
+        "评估每个渠道 CAC / LTV / 可扩展性",
+        "输出渠道优先级矩阵 + 测试计划",
+        "写入 workspace/deliverables/ops/{channel}-analysis.md",
+    ],
+    tools_hint=["web_search", "web_research", "search_docs"],
+    output_template=(
+        "## 渠道全景（渠道/类型/覆盖人群/成本级别）\n"
+        "## Bull's Eye 筛选（外圈/中圈/靶心）\n"
+        "## 渠道评估矩阵（渠道/CAC/LTV/可扩展/难度/评分）\n"
+        "## 竞品渠道策略对比\n"
+        "## 渠道测试计划（渠道/假设/预算/时长/成功标准）"
+    ),
+))
