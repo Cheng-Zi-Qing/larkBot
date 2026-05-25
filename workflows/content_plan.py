@@ -74,7 +74,7 @@ register(WorkflowDef(
         "按 AARRR 漏斗设计活动方案",
         "输出任务清单（任务/负责人/截止/状态/优先级）",
         "设定关键指标和追踪方式",
-        "写入 workspace/deliverables/ops/{campaign}-tracker.md",
+        "写入飞书文档",
     ],
     tools_hint=["web_search", "search_docs", "search_messages", "create_doc"],
     output_template=(
@@ -101,7 +101,7 @@ register(WorkflowDef(
         "Bull's Eye 框架筛选：外圈（可能渠道）→ 中圈（值得测试）→ 靶心（核心渠道）",
         "评估每个渠道 CAC / LTV / 可扩展性",
         "输出渠道优先级矩阵 + 测试计划",
-        "写入 workspace/deliverables/ops/{channel}-analysis.md",
+        "写入飞书文档",
     ],
     tools_hint=["web_search", "web_research", "search_docs"],
     output_template=(

@@ -19,7 +19,7 @@ register(WorkflowDef(
         "TAM/SAM/SOM 双路径估算（Top-down + Bottom-up）",
         "Market Scan Chain：SWOT → PESTLE → Porter's → Ansoff",
         "结构化输出：按框架逐维度组织报告",
-        "写入 workspace/deliverables/research/{topic}-market.md + 更新 _index.md",
+        "通过 create_doc 写入飞书文档",
     ],
     tools_hint=["web_research", "web_search", "web_read", "search_docs", "create_doc"],
     output_template=(
