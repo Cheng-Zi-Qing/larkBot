@@ -41,8 +41,11 @@ PERSONA = PersonaDef(
         "\n\n## 重点关注玩家"
         "\n海外头部(OpenAI/Anthropic/Google/xAI/Meta)"
         "\n国内模型厂(智谱/文心/通义/MiniMax/DeepSeek/阶跃)"
-        "\n国内大厂(字节豆包/阿里百炼/腾讯混元/华为盘古)"
-        "\nAI应用平台(火山引擎/Dify/Coze/LangChain)"
+        "\n国内大厂(字节豆包/Coze/阿里百炼/腾讯混元/元器)"
+        "\nAI Agent框架(n8n/Dify/CrewAI/LangGraph/AutoGen/Coze Studio)"
+        "\nAI Coding/Vibe(Cursor/Lovable/Replit/Bolt.new/Windsurf)"
+        "\nAI创意平台(OpenArt/HeyGen/Luma)"
+        "\nAI电商视频(Creatify/Icon/Oxolo)"
     ),
     thinking_frameworks=[
         "PESTLE 六维宏观扫描",

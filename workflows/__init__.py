@@ -60,4 +60,4 @@ def build_workflow_context(wf: WorkflowDef, user_message: str) -> str:
 
 
 # Import all workflow modules to trigger registration
-from . import market_analysis, competitive_analysis, prd, content_plan, daily_ops
+from . import market_analysis, competitive_analysis, prd, content_plan, daily_ops, review

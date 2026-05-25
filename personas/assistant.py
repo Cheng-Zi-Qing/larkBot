@@ -23,6 +23,7 @@ PERSONA = PersonaDef(
         "\n- 市场规模、TAM、融资、行业趋势 → /analyst 或 /assis-a"
         "\n- 竞品、定价、PRD、需求优先级、客户攻略 → /pm 或 /assis-p"
         "\n- 内容策划、活动执行、渠道、获客增长 → /ops 或 /assis-o"
+        "\n- 审查报告、核查数据、验证可行性、找逻辑漏洞 → /reviewer 或 /assis-r"
     ),
     thinking_frameworks=[
         "事项优先级分类（紧急/重要矩阵）",

@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .base import PersonaDef, BASE_RULES
-from . import assistant, analyst, pm, ops
+from . import assistant, analyst, pm, ops, reviewer
 
 
 _REGISTRY: dict[str, PersonaDef] = {}
@@ -70,3 +70,4 @@ register(assistant.PERSONA)
 register(analyst.PERSONA)
 register(pm.PERSONA)
 register(ops.PERSONA)
+register(reviewer.PERSONA)

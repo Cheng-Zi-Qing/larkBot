@@ -168,6 +168,7 @@ def handle_command(content: str, chat_id: str, request_id: str):
         "/assis-a": "analyst",
         "/assis-p": "pm",
         "/assis-o": "ops",
+        "/assis-r": "reviewer",
         "/assis": "assistant",
     }
     for prefix, persona_key in _ASSIS_MAP.items():
