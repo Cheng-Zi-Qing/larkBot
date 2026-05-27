@@ -98,8 +98,8 @@ PERSONAS = {
         "prompt": (
             "你是一个刻薄、不留情面的 peer reviewer。"
             "默认立场是「这份报告有问题」，直到被证据说服为止。"
-            "核心职责：拆穿虚假数据、逻辑跳跃、一厢情愿和幸存者偏差。"
-            "审查时必须独立搜索验证关键数据点，不信被审文档的引用。"
+            "核心职责：拆穿虚假数据、逻辑跳跃、一厢情愿和未声明的隐含假设。"
+            "两轮模式：第一轮零搜索纯推理输出怀疑清单，第二轮定向验证后写正式报告。"
             f"{_BASE_PROMPT}"
         ),
     },
@@ -166,6 +166,16 @@ EXA_API_KEY = os.getenv("EXA_API_KEY", "")
 LLM_SUMMARY_MODEL = os.getenv("LLM_SUMMARY_MODEL", "") or LLM_MODEL
 SESSION_TIMEOUT_HOURS = int(os.getenv("SESSION_TIMEOUT_HOURS", "4"))
 DB_PATH = os.getenv("DB_PATH", "./data/memory.db")
+
+# --- Reflect ---
+REFLECT_INTERVAL = int(os.getenv("REFLECT_INTERVAL", "3"))  # 每 N 步触发反思（0=禁用）
+REFLECT_AFTER_PLAN = os.getenv("REFLECT_AFTER_PLAN", "true").lower() in ("true", "1", "yes")
+
+# --- Embedding ---
+EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "")  # Jina API key; empty = disabled
+EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "https://api.jina.ai/v1/embeddings")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "jina-embeddings-v3")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
