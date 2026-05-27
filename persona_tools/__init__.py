@@ -7,5 +7,5 @@ PERSONA_CATEGORIES: dict[str, set[str] | None] = {
     "pm": {"read", "write", "organize", "research"},
     "analyst": {"read", "write", "research"},
     "ops": {"read", "write", "organize", "communicate", "research"},
-    "reviewer": {"read", "research"},
+    "reviewer": {"read", "write", "research"},
 }
