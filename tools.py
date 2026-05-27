@@ -163,9 +163,40 @@ def execute_tool(
     if hook_result.skip:
         return ToolResult(output=hook_result.override_output, success=True, cached=True)
 
+    # Short-term cache: check before executing
+    import memory
+    cache_key = memory.build_cache_key(tool_name, tool_input)
+    if cache_key:
+        session_id = memory.get_current_session_id()
+        cached_value = memory.get_cache(cache_key, session_id)
+        if cached_value:
+            return ToolResult(output=cached_value + "\n[来自缓存]", success=True, cached=True)
+
     if tool_def.python_func:
-        return _execute_python_tool(request_id, tool_def, tool_input, ctx)
-    return _execute_cli_tool(request_id, tool_def, tool_input, ctx)
+        result = _execute_python_tool(request_id, tool_def, tool_input, ctx)
+    else:
+        result = _execute_cli_tool(request_id, tool_def, tool_input, ctx)
+
+    # Short-term cache: store on success
+    if cache_key and result.success and not result.cached:
+        memory.set_cache(cache_key, result.output, session_id)
+
+    # Document index: async index on doc tool success
+    if tool_name in memory._DOC_TOOLS and result.success and not result.cached:
+        memory.try_index_document(tool_name, tool_input, result.output)
+
+    # Doc write failure: hint LLM to output content directly to user
+    _DOC_WRITE_TOOLS = (
+        "create_doc", "edit_doc", "create_markdown", "overwrite_markdown",
+        "patch_markdown", "create_slides", "create_sheet",
+    )
+    if not result.success and tool_name in _DOC_WRITE_TOOLS:
+        result.output += (
+            "\n[系统提示] 文档写入失败。请将准备好的内容直接以文本形式回复给用户，"
+            "不要重试写入操作。"
+        )
+
+    return result
 
 
 def _execute_python_tool(
@@ -212,7 +243,14 @@ class _FakeProc:
 def _execute_cli_tool(
     request_id: str, tool_def: ToolDef, tool_input: dict, ctx: HookContext,
 ) -> ToolResult:
-    cmd = tool_def.build_command(tool_input)
+    try:
+        cmd = tool_def.build_command(tool_input)
+    except KeyError as e:
+        missing_param = e.args[0] if e.args else "unknown"
+        error_msg = f"Missing required parameter: {missing_param}"
+        logger.log_error(request_id, tool_def.name, "MissingParam", stderr=error_msg)
+        return ToolResult(output=error_msg, success=False)
+
     if ctx.extra_flags:
         cmd.extend(ctx.extra_flags)
 
