@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import config
+import embedding
 import llm
 import logger
 from tools import ToolDef, register, _schema
@@ -94,6 +95,24 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+
+CREATE TABLE IF NOT EXISTS cache (
+    key         TEXT NOT NULL,
+    value       TEXT NOT NULL,
+    session_id  TEXT NOT NULL,
+    created_at  INTEGER NOT NULL,
+    hit_count   INTEGER DEFAULT 0,
+    PRIMARY KEY (key, session_id)
+);
+"""
+
+_MIGRATION_SQL = """
+ALTER TABLE sessions ADD COLUMN embedding BLOB;
+ALTER TABLE facts ADD COLUMN embedding BLOB;
+CREATE TABLE IF NOT EXISTS doc_index (doc_token TEXT PRIMARY KEY, doc_type TEXT NOT NULL, title TEXT, content TEXT NOT NULL, summary TEXT, embedding BLOB, source_session TEXT, indexed_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE VIRTUAL TABLE IF NOT EXISTS doc_index_fts USING fts5(title, content, summary, content=doc_index, content_rowid=rowid);
+CREATE TRIGGER IF NOT EXISTS doc_index_ai AFTER INSERT ON doc_index BEGIN INSERT INTO doc_index_fts(rowid, title, content, summary) VALUES (new.rowid, new.title, new.content, new.summary); END;
+CREATE TRIGGER IF NOT EXISTS doc_index_au AFTER UPDATE ON doc_index BEGIN DELETE FROM doc_index_fts WHERE rowid=old.rowid; INSERT INTO doc_index_fts(rowid, title, content, summary) VALUES (new.rowid, new.title, new.content, new.summary); END;
 """
 
 
@@ -107,6 +126,7 @@ def _get_db() -> sqlite3.Connection:
     try:
         _db.execute("PRAGMA integrity_check")
         _db.executescript(_SCHEMA_SQL)
+        _apply_migrations(_db)
     except sqlite3.DatabaseError:
         _db.close()
         _db = None
@@ -115,8 +135,22 @@ def _get_db() -> sqlite3.Connection:
         _db.execute("PRAGMA journal_mode=WAL")
         _db.execute("PRAGMA foreign_keys=ON")
         _db.executescript(_SCHEMA_SQL)
+        _apply_migrations(_db)
     _db.commit()
     return _db
+
+
+def _apply_migrations(db: sqlite3.Connection):
+    """Apply schema migrations idempotently."""
+    for stmt in _MIGRATION_SQL.strip().split("\n"):
+        stmt = stmt.strip().rstrip(";")
+        if not stmt:
+            continue
+        try:
+            db.execute(stmt)
+        except sqlite3.OperationalError:
+            pass  # column/table already exists
+    db.commit()
 
 
 def _rebuild_db():
@@ -312,6 +346,220 @@ def track_tool_call(tool_name: str):
         _session_base_tags.add(tag)
 
 
+# --- Short-term Cache ---
+
+_CACHEABLE_TOOLS = {
+    "web_search": lambda inp: f"web_search:{inp.get('query', '')}",
+    "web_read": lambda inp: f"web_read:{inp.get('url', '')}",
+    "web_research": lambda inp: f"web_research:{inp.get('query', '')}",
+    "read_doc": lambda inp: f"read_doc:{inp.get('doc', '')}",
+    "read_sheet": lambda inp: f"read_sheet:{inp.get('sheet', '')}",
+    "read_table": lambda inp: f"read_table:{inp.get('app_token', '')}:{inp.get('table_id', '')}",
+}
+
+
+def build_cache_key(tool_name: str, tool_input: dict) -> str | None:
+    """Build a cache key for the given tool call, or None if not cacheable."""
+    builder = _CACHEABLE_TOOLS.get(tool_name)
+    if not builder:
+        return None
+    key = builder(tool_input)
+    # Don't cache if key has no meaningful content
+    if key == f"{tool_name}:" or key.endswith("::"):
+        return None
+    return key
+
+
+def get_cache(key: str, session_id: str) -> str | None:
+    """Get cached tool result for this session. Returns None on miss."""
+    try:
+        with _db_lock:
+            db = _get_db()
+            row = db.execute(
+                "SELECT value FROM cache WHERE key = ? AND session_id = ?",
+                (key, session_id),
+            ).fetchone()
+            if row:
+                db.execute(
+                    "UPDATE cache SET hit_count = hit_count + 1 WHERE key = ? AND session_id = ?",
+                    (key, session_id),
+                )
+                db.commit()
+                return row[0]
+    except sqlite3.DatabaseError:
+        pass
+    return None
+
+
+def set_cache(key: str, value: str, session_id: str):
+    """Store a tool result in the session cache."""
+    now = int(time.time())
+    try:
+        with _db_lock:
+            db = _get_db()
+            db.execute(
+                "INSERT OR REPLACE INTO cache (key, value, session_id, created_at, hit_count) "
+                "VALUES (?, ?, ?, ?, 0)",
+                (key, value, session_id, now),
+            )
+            db.commit()
+    except sqlite3.DatabaseError:
+        pass
+
+
+def clear_session_cache(session_id: str):
+    """Clear cache entries for a closed session."""
+    try:
+        with _db_lock:
+            db = _get_db()
+            db.execute("DELETE FROM cache WHERE session_id = ?", (session_id,))
+            db.commit()
+    except sqlite3.DatabaseError:
+        pass
+
+
+# --- Document Index ---
+
+_DOC_TOOLS = {
+    "read_doc": "doc",
+    "create_doc": "doc",
+    "edit_doc": "doc",
+    "read_sheet": "sheet",
+    "create_sheet": "sheet",
+    "read_table": "bitable",
+}
+
+_DOC_SUMMARY_PROMPT = "请用100字以内中文概括以下文档的核心内容:\n{content}"
+
+
+def _extract_doc_token(tool_name: str, tool_input: dict, tool_output: str) -> str | None:
+    """Extract a stable document identifier from tool input/output."""
+    # From input
+    for key in ("doc", "sheet", "base_token"):
+        val = tool_input.get(key, "")
+        if val:
+            # Strip URL to token if needed
+            if "/" in val:
+                val = val.rstrip("/").split("/")[-1]
+                # Remove query params
+                if "?" in val:
+                    val = val.split("?")[0]
+            return val
+
+    # From output (created docs return doc_id)
+    try:
+        data = json.loads(tool_output)
+        if isinstance(data, dict):
+            inner = data.get("data", data)
+            for key in ("document_id", "doc_token", "spreadsheet_token"):
+                if inner.get(key):
+                    return inner[key]
+            doc = inner.get("document", {})
+            if isinstance(doc, dict):
+                for key in ("document_id", "doc_token"):
+                    if doc.get(key):
+                        return doc[key]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return None
+
+
+def _extract_title(tool_input: dict, tool_output: str) -> str:
+    """Extract document title from tool input or output."""
+    title = tool_input.get("title", "")
+    if title:
+        return title
+    try:
+        data = json.loads(tool_output)
+        if isinstance(data, dict):
+            inner = data.get("data", data)
+            for key in ("title", "name"):
+                if inner.get(key):
+                    return inner[key]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return ""
+
+
+def try_index_document(tool_name: str, tool_input: dict, tool_output: str):
+    """Attempt to index a document after a successful doc tool call. Non-blocking."""
+    doc_type = _DOC_TOOLS.get(tool_name)
+    if not doc_type:
+        return
+
+    doc_token = _extract_doc_token(tool_name, tool_input, tool_output)
+    if not doc_token:
+        return
+
+    # Only index if content is substantial (>200 chars)
+    content = tool_output[:5000] if len(tool_output) > 5000 else tool_output
+    if len(content) < 200:
+        return
+
+    title = _extract_title(tool_input, tool_output)
+    session_id = _current_session_id or ""
+
+    threading.Thread(
+        target=_index_document_async,
+        args=(doc_token, doc_type, title, content, session_id),
+        daemon=True,
+    ).start()
+
+
+def _index_document_async(
+    doc_token: str, doc_type: str, title: str, content: str, session_id: str,
+):
+    """Index document content into doc_index table with optional embedding."""
+    now = int(time.time())
+
+    # Generate summary via LLM (if content is long enough)
+    summary = ""
+    if len(content) > 500:
+        try:
+            client = _get_summary_client()
+            resp = client.chat(
+                messages=[{"role": "user", "content": _DOC_SUMMARY_PROMPT.format(content=content[:3000])}],
+                system="你是一个文档摘要助手。只输出摘要文本，不要输出其他内容。",
+                tools=[],
+                model=config.LLM_SUMMARY_MODEL,
+                max_tokens=256,
+            )
+            summary = (resp.text or "").strip()[:200]
+        except Exception:
+            summary = content[:200]
+    else:
+        summary = content[:200]
+
+    # Generate embedding
+    emb = None
+    if embedding.enabled():
+        embed_text = f"{title} {summary}" if title else summary
+        emb = embedding.get_embedding(embed_text)
+
+    try:
+        with _db_lock:
+            db = _get_db()
+            existing = db.execute(
+                "SELECT rowid FROM doc_index WHERE doc_token = ?", (doc_token,)
+            ).fetchone()
+            if existing:
+                db.execute(
+                    "UPDATE doc_index SET title=?, content=?, summary=?, embedding=?, "
+                    "source_session=?, updated_at=? WHERE doc_token=?",
+                    (title, content, summary, emb, session_id, now, doc_token),
+                )
+            else:
+                db.execute(
+                    "INSERT INTO doc_index (doc_token, doc_type, title, content, summary, "
+                    "embedding, source_session, indexed_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (doc_token, doc_type, title, content, summary, emb, session_id, now, now),
+                )
+            db.commit()
+    except sqlite3.DatabaseError:
+        pass
+
+
 # --- Summarization ---
 
 _SUMMARY_PROMPT = """请根据以下对话记录生成摘要、标签和事实。
@@ -404,6 +652,7 @@ def _parse_llm_json(text: str) -> dict | None:
 
 
 def _close_session(session_id: str):
+    clear_session_cache(session_id)
     messages = load_session_messages(session_id)
     now = int(time.time())
     base_tags_snapshot = set(_session_base_tags)
@@ -534,8 +783,117 @@ def _run_summarization(compressed: str, session_id: str, now: int, base_tags: se
     except sqlite3.DatabaseError:
         pass
 
+    # Generate embeddings asynchronously (non-blocking)
+    if embedding.enabled():
+        threading.Thread(
+            target=_embed_session_and_facts,
+            args=(session_id, summary, parsed.get("facts", [])),
+            daemon=True,
+        ).start()
 
-# --- recall_memory tool ---
+
+def _embed_session_and_facts(session_id: str, summary: str, facts: list):
+    """Generate and store embeddings for a session summary and its facts."""
+    try:
+        # Embed the session summary
+        if summary:
+            session_vec = embedding.get_embedding(summary)
+            if session_vec:
+                with _db_lock:
+                    db = _get_db()
+                    db.execute(
+                        "UPDATE sessions SET embedding = ? WHERE session_id = ?",
+                        (session_vec, session_id),
+                    )
+                    db.commit()
+
+        # Embed facts
+        fact_texts = [f for f in facts if isinstance(f, str) and f.strip()]
+        if fact_texts:
+            vecs = embedding.get_embeddings_batch(fact_texts)
+            with _db_lock:
+                db = _get_db()
+                for fact_text, vec in zip(fact_texts, vecs):
+                    if vec:
+                        db.execute(
+                            "UPDATE facts SET embedding = ? "
+                            "WHERE fact_text = ? AND source_session = ?",
+                            (vec, fact_text.strip(), session_id),
+                        )
+                db.commit()
+    except Exception:
+        pass  # Non-critical: embedding failure doesn't affect core functionality
+
+
+def search_doc_index(query_text: str, top_k: int = 3) -> list[dict]:
+    """Search doc_index via FTS5 + embedding hybrid. Returns list of dicts."""
+    results: list[dict] = []
+    fts_ids: list[str] = []
+    sem_ids: list[str] = []
+    doc_map: dict[str, dict] = {}
+
+    try:
+        with _db_lock:
+            db = _get_db()
+            # FTS5 keyword search
+            fts_query = _escape_fts(query_text)
+            fts_rows = db.execute(
+                "SELECT d.doc_token, d.doc_type, d.title, d.summary, d.updated_at "
+                "FROM doc_index_fts f JOIN doc_index d ON f.rowid = d.rowid "
+                "WHERE doc_index_fts MATCH ? ORDER BY rank LIMIT ?",
+                (fts_query, top_k),
+            ).fetchall()
+            for doc_token, doc_type, title, summary, updated_at in fts_rows:
+                fts_ids.append(doc_token)
+                doc_map[doc_token] = {
+                    "doc_token": doc_token, "doc_type": doc_type,
+                    "title": title or "", "summary": summary or "",
+                    "updated_at": updated_at,
+                }
+    except sqlite3.DatabaseError:
+        pass
+
+    # Embedding semantic search
+    if embedding.enabled() and query_text:
+        query_vec = embedding.get_embedding(query_text)
+        if query_vec:
+            try:
+                with _db_lock:
+                    db = _get_db()
+                    emb_rows = db.execute(
+                        "SELECT doc_token, embedding FROM doc_index WHERE embedding IS NOT NULL"
+                    ).fetchall()
+                candidates = [(dt, emb) for dt, emb in emb_rows]
+                ranked = embedding.search_by_embedding(query_vec, candidates, top_k=top_k)
+                sem_ids = [dt for dt, score in ranked if score > 0.3]
+
+                # Fetch data for semantic-only hits
+                for dt in sem_ids:
+                    if dt not in doc_map:
+                        with _db_lock:
+                            db = _get_db()
+                            row = db.execute(
+                                "SELECT doc_token, doc_type, title, summary, updated_at "
+                                "FROM doc_index WHERE doc_token = ?",
+                                (dt,),
+                            ).fetchone()
+                        if row:
+                            doc_map[dt] = {
+                                "doc_token": row[0], "doc_type": row[1],
+                                "title": row[2] or "", "summary": row[3] or "",
+                                "updated_at": row[4],
+                            }
+            except sqlite3.DatabaseError:
+                pass
+
+    # RRF merge
+    merged = _rrf_merge(fts_ids, sem_ids, k=60)
+    for dt in merged[:top_k]:
+        if dt in doc_map:
+            results.append(doc_map[dt])
+
+    return results
+
 
 _TIME_RANGE_MAP = {
     "1d": 86400,
@@ -631,8 +989,14 @@ def _recall_search(inputs: dict) -> str:
     if keyword:
         fts_terms.append(_escape_fts(keyword))
 
+    # Build query text for embedding search
+    query_text = " ".join(
+        v for v in [keyword, inputs.get("topic"), inputs.get("people"), inputs.get("entity")] if v
+    )
+
     results_parts = []
 
+    # --- FTS5 session search ---
     with _db_lock:
         db = _get_db()
 
@@ -655,10 +1019,49 @@ def _recall_search(inputs: dict) -> str:
                 (min_time,),
             ).fetchall()
 
-    if rows:
-        results_parts.append(f"## 相关历史 Session (共 {len(rows)} 条)\n")
-        for i, row in enumerate(rows, 1):
-            sid, start, end, summary, base_tags, people, topic, action, entity, extra, _ = row
+    fts_session_ids = [r[0] for r in rows]
+    fts_session_map = {r[0]: r for r in rows}
+
+    # --- Embedding semantic search (if enabled) ---
+    sem_session_ids: list[str] = []
+    if embedding.enabled() and query_text:
+        query_vec = embedding.get_embedding(query_text)
+        if query_vec:
+            with _db_lock:
+                db = _get_db()
+                emb_rows = db.execute(
+                    "SELECT session_id, embedding FROM sessions "
+                    "WHERE embedding IS NOT NULL AND end_time IS NOT NULL AND start_time >= ?",
+                    (min_time,),
+                ).fetchall()
+            candidates = [(sid, emb) for sid, emb in emb_rows]
+            ranked = embedding.search_by_embedding(query_vec, candidates, top_k=5)
+            sem_session_ids = [sid for sid, score in ranked if score > 0.3]
+
+    # --- Merge via RRF (Reciprocal Rank Fusion) ---
+    merged_ids = _rrf_merge(fts_session_ids, sem_session_ids, k=60)
+
+    # Fetch full data for any semantic-only hits
+    for sid in merged_ids:
+        if sid not in fts_session_map:
+            with _db_lock:
+                db = _get_db()
+                row = db.execute(
+                    "SELECT session_id, start_time, end_time, summary, "
+                    "base_tags, people, topic, action, entity, extra_tags, 0 "
+                    "FROM sessions WHERE session_id = ?",
+                    (sid,),
+                ).fetchone()
+            if row:
+                fts_session_map[sid] = row
+
+    if merged_ids:
+        results_parts.append(f"## 相关历史 Session (共 {len(merged_ids)} 条)\n")
+        for i, sid in enumerate(merged_ids[:5], 1):
+            row = fts_session_map.get(sid)
+            if not row:
+                continue
+            _, start, end, summary, base_tags, people, topic, action, entity, extra, _ = row
             results_parts.append(
                 f"{i}. [{sid}] {_fmt_time(start)} ~ {_fmt_time(end)}\n"
                 f"   摘要: {summary or '(无)'}\n"
@@ -695,10 +1098,36 @@ def _recall_search(inputs: dict) -> str:
             for fact_text, src, created in fact_rows:
                 results_parts.append(f"- {fact_text} (来源: {src}, {_fmt_time(created)})\n")
 
+    # --- Document index search ---
+    if query_text:
+        doc_results = search_doc_index(query_text, top_k=3)
+        if doc_results:
+            results_parts.append(f"\n## 相关文档 (共 {len(doc_results)} 条)\n")
+            for i, doc in enumerate(doc_results, 1):
+                title = doc.get("title") or "(无标题)"
+                summary = doc.get("summary") or "(无摘要)"
+                doc_type = doc.get("doc_type", "doc")
+                updated = _fmt_time(doc.get("updated_at"))
+                results_parts.append(
+                    f"{i}. [{doc_type}] {title}\n"
+                    f"   摘要: {summary}\n"
+                    f"   更新: {updated} | token: {doc.get('doc_token', '')}\n\n"
+                )
+
     if not results_parts:
         return "未找到相关历史记忆。"
 
     return "".join(results_parts)
+
+
+def _rrf_merge(list_a: list[str], list_b: list[str], k: int = 60) -> list[str]:
+    """Reciprocal Rank Fusion merge of two ranked lists."""
+    scores: dict[str, float] = {}
+    for rank, item in enumerate(list_a):
+        scores[item] = scores.get(item, 0) + 1.0 / (k + rank + 1)
+    for rank, item in enumerate(list_b):
+        scores[item] = scores.get(item, 0) + 1.0 / (k + rank + 1)
+    return sorted(scores, key=scores.get, reverse=True)
 
 
 def _fmt_time(ts: int | None) -> str:
