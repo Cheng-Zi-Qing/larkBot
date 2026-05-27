@@ -4,89 +4,53 @@ from __future__ import annotations
 import json as _json
 import re
 
-TOOL_LABELS: dict[str, str] = {
-    "web_search": "搜索网络",
-    "web_read": "读取网页",
-    "web_research": "深度调研",
-    "search_messages": "搜索消息",
-    "get_chat_history": "读取聊天记录",
-    "send_message": "发送消息",
-    "reply_message": "回复消息",
-    "search_chats": "搜索会话",
-    "create_doc": "创建文档",
-    "edit_doc": "编辑文档",
-    "read_doc": "读取文档",
-    "search_docs": "搜索文档",
-    "read_table": "读取多维表格",
-    "write_table": "写入多维表格",
-    "query_table": "查询多维表格",
-    "base_create": "创建多维表格",
-    "base_get": "查看多维表格信息",
-    "table_list": "列出数据表",
-    "table_create": "创建数据表",
-    "field_list": "列出字段",
-    "field_create": "创建字段",
-    "record_batch_create": "批量创建记录",
-    "record_batch_update": "批量更新记录",
-    "record_upsert": "更新插入记录",
-    "record_delete": "删除记录",
-    "record_get": "获取记录",
-    "record_upload_attachment": "上传附件",
-    "record_list": "列出记录",
-    "view_list": "列出视图",
-    "data_query": "数据查询",
-    "read_sheet": "读取电子表格",
-    "create_sheet": "创建电子表格",
-    "append_sheet": "追加表格数据",
-    "find_sheet": "查找表格数据",
-    "get_agenda": "查看日程",
-    "create_event": "创建日程",
-    "update_event": "更新日程",
-    "check_freebusy": "查询空闲时间",
-    "find_room": "查找会议室",
-    "get_my_tasks": "查看任务",
-    "create_task": "创建任务",
-    "update_task": "更新任务",
-    "complete_task": "完成任务",
-    "comment_task": "评论任务",
-    "search_tasks": "搜索任务",
-    "list_mail": "查看邮件",
-    "read_mail": "读取邮件",
-    "send_mail": "发送邮件",
-    "reply_mail": "回复邮件",
-    "search_user": "搜索用户",
-    "search_meetings": "搜索会议",
-    "drive_upload": "上传文件",
-    "drive_download": "下载文件",
-    "drive_export": "导出文档",
-    "drive_import": "导入文档",
-    "drive_create_folder": "创建文件夹",
-    "drive_move": "移动文件",
-    "drive_delete": "删除文件",
-    "drive_comment": "文档评论",
-    "drive_inspect": "查看文件信息",
-    "wiki_list_spaces": "列出知识库",
-    "wiki_create_node": "创建知识库节点",
-    "wiki_get_node": "查看知识库节点",
-    "wiki_list_nodes": "列出知识库节点",
-    "wiki_move": "移动知识库节点",
-    "create_markdown": "创建 Markdown",
-    "read_markdown": "读取 Markdown",
-    "overwrite_markdown": "覆写 Markdown",
-    "patch_markdown": "修改 Markdown",
-    "create_slides": "创建演示文稿",
-    "doc_insert_media": "插入媒体",
-    "competitive_landscape": "竞品分析",
-    "generate_prd": "生成 PRD",
-    "content_research_brief": "内容调研",
-    "campaign_tracker": "活动追踪",
-    "meeting_digest": "会议纪要",
-    "weekly_report_builder": "周报生成",
-    "market_scanner": "市场扫描",
-    "acquisition_research": "获客研究",
-    "recall_memory": "回忆记忆",
-    "submit_plan": "制定计划",
-}
+from tools import get_tool_labels
+
+
+# Backward-compatible module-level access (for `from bot import TOOL_LABELS`)
+class _LazyLabels(dict):
+    """Dict that populates on first access from TOOL_REGISTRY."""
+    _loaded = False
+
+    def _ensure(self):
+        if not self._loaded:
+            self.update(get_tool_labels())
+            self._loaded = True
+
+    def __getitem__(self, key):
+        self._ensure()
+        return super().__getitem__(key)
+
+    def get(self, key, default=None):
+        self._ensure()
+        return super().get(key, default)
+
+    def __contains__(self, key):
+        self._ensure()
+        return super().__contains__(key)
+
+    def __iter__(self):
+        self._ensure()
+        return super().__iter__()
+
+    def __len__(self):
+        self._ensure()
+        return super().__len__()
+
+    def items(self):
+        self._ensure()
+        return super().items()
+
+    def values(self):
+        self._ensure()
+        return super().values()
+
+    def keys(self):
+        self._ensure()
+        return super().keys()
+
+
+TOOL_LABELS: dict[str, str] = _LazyLabels()
 
 
 def format_progress(

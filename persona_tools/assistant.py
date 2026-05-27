@@ -75,6 +75,7 @@ register(ToolDef(
     description="整理会议纪要（决议+待办+负责人）",
     identity="",
     category="research",
+    label="会议纪要",
     claude_schema=_schema(
         "meeting_digest",
         "Extract structured meeting minutes from calendar and chat data. "
@@ -166,6 +167,7 @@ register(ToolDef(
     description="自动汇总生成周报",
     identity="",
     category="research",
+    label="周报生成",
     claude_schema=_schema(
         "weekly_report_builder",
         "Auto-generate a weekly report by collecting calendar, tasks, messages, and past reports. "

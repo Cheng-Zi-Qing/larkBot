@@ -17,6 +17,7 @@ register(ToolDef(
     ),
     identity="",
     category="read",
+    label="制定计划",
     claude_schema=_schema("submit_plan", "Submit a multi-step execution plan before starting complex tasks", {
         "steps": {
             "type": "array",

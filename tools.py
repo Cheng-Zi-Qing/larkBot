@@ -28,6 +28,7 @@ class ToolDef:
     identity: str  # "user", "bot", or "" for non-lark tools
     claude_schema: dict[str, Any]
     category: str = "read"  # read | write | communicate | organize | research
+    label: str = ""  # Chinese display label for progress notifications
     build_command: Callable[[dict], list[str]] | None = None
     python_func: Callable[[dict], str] | None = None
 
@@ -84,6 +85,11 @@ def get_tool_definitions() -> list[dict]:
     if categories is None:
         return [t.claude_schema for t in TOOL_REGISTRY.values()]
     return [t.claude_schema for t in TOOL_REGISTRY.values() if t.category in categories]
+
+
+def get_tool_labels() -> dict[str, str]:
+    """Dynamically build tool_name → label mapping from TOOL_REGISTRY."""
+    return {name: td.label for name, td in TOOL_REGISTRY.items() if td.label}
 
 
 def _extract_doc_id(tool_name: str, output: str) -> tuple[str | None, str | None]:
@@ -328,6 +334,7 @@ register(ToolDef(
     name="search_messages",
     description="搜索飞书消息",
     identity="user",
+    label="搜索消息",
     claude_schema=_schema("search_messages", "Search messages across chats", {
         "query": {"type": "string", "description": "Search keyword"},
         "chat_id": {"type": "string", "description": "Optional: limit to a specific chat"},
@@ -343,6 +350,7 @@ register(ToolDef(
     name="get_chat_history",
     description="获取群聊/私聊的历史消息",
     identity="user",
+    label="读取聊天记录",
     claude_schema=_schema("get_chat_history", "Get message history of a chat", {
         "chat_id": {"type": "string", "description": "Chat ID"},
         "page_size": {"type": "integer", "description": "Number of messages (default 20)"},
@@ -359,6 +367,7 @@ register(ToolDef(
     description="向群聊/私聊发送消息",
     identity="bot",
     category="communicate",
+    label="发送消息",
     claude_schema=_schema("send_message", "Send a text message to a chat", {
         "chat_id": {"type": "string", "description": "Target chat ID"},
         "text": {"type": "string", "description": "Message text"},
@@ -374,6 +383,7 @@ register(ToolDef(
     description="回复指定消息",
     identity="bot",
     category="communicate",
+    label="回复消息",
     claude_schema=_schema("reply_message", "Reply to a specific message", {
         "message_id": {"type": "string", "description": "Message ID to reply to"},
         "text": {"type": "string", "description": "Reply text"},
@@ -388,6 +398,7 @@ register(ToolDef(
     name="search_chats",
     description="搜索群聊",
     identity="user",
+    label="搜索会话",
     claude_schema=_schema("search_chats", "Search for chats/groups by name", {
         "query": {"type": "string", "description": "Search keyword"},
     }, ["query"]),
@@ -408,6 +419,7 @@ register(ToolDef(
     ),
     identity="user",
     category="write",
+    label="创建文档",
     claude_schema=_schema("create_doc", "Create a new Lark document. Default XML format supports rich elements; use doc_format=markdown for simple docs. Links: <a href=\"URL\">text</a> in XML, [text](url) in markdown.", {
         "title": {"type": "string", "description": "Document title"},
         "content": {"type": "string", "description": "Document body. XML (default): use <p>, <h1>, <a href>, <table> etc. Markdown: standard syntax."},
@@ -428,6 +440,7 @@ register(ToolDef(
     name="read_doc",
     description="读取飞书文档内容",
     identity="user",
+    label="读取文档",
     claude_schema=_schema("read_doc", "Read a Lark document by its ID or URL", {
         "doc": {"type": "string", "description": "Document ID or URL"},
     }, ["doc"]),
@@ -448,6 +461,7 @@ register(ToolDef(
     ),
     identity="user",
     category="write",
+    label="编辑文档",
     claude_schema=_schema("edit_doc", "Edit an existing Lark document. Commands: append (add to end), overwrite (replace all), str_replace (find-and-replace text). For links use <a href=\"URL\">text</a> in XML or [text](url) in markdown.", {
         "doc": {"type": "string", "description": "Document ID or URL"},
         "content": {"type": "string", "description": "New content (XML default, or markdown if doc_format=markdown). Links: <a href=\"URL\">text</a> or [text](url)"},
@@ -479,6 +493,7 @@ register(ToolDef(
     name="search_docs",
     description="搜索飞书文档/云盘文件",
     identity="user",
+    label="搜索文档",
     claude_schema=_schema("search_docs", "Search documents and files in Lark Drive", {
         "query": {"type": "string", "description": "Search keyword"},
     }, ["query"]),
@@ -493,6 +508,7 @@ register(ToolDef(
     description="向飞书文档中插入图片或文件",
     identity="user",
     category="write",
+    label="插入媒体",
     claude_schema=_schema("doc_insert_media", "Insert an image or file into a Lark document", {
         "doc": {"type": "string", "description": "Document ID or URL"},
         "file": {"type": "string", "description": "Local file path to insert"},
@@ -514,6 +530,7 @@ register(ToolDef(
     name="read_table",
     description="读取多维表格记录",
     identity="user",
+    label="读取多维表格",
     claude_schema=_schema("read_table", "Search records in a Bitable table", {
         "base_token": {"type": "string", "description": "Bitable app token"},
         "table_id": {"type": "string", "description": "Table ID"},
@@ -531,6 +548,7 @@ register(ToolDef(
     description="向多维表格写入记录",
     identity="user",
     category="write",
+    label="写入多维表格",
     claude_schema=_schema("write_table", "Create records in a Bitable table", {
         "base_token": {"type": "string", "description": "Bitable app token"},
         "table_id": {"type": "string", "description": "Table ID"},
@@ -547,6 +565,7 @@ register(ToolDef(
     name="query_table",
     description="查询多维表格数据",
     identity="user",
+    label="查询多维表格",
     claude_schema=_schema("query_table", "Run a data query on a Bitable table", {
         "base_token": {"type": "string", "description": "Bitable app token"},
         "table_id": {"type": "string", "description": "Table ID"},
@@ -564,6 +583,7 @@ register(ToolDef(
     description="创建多维表格应用",
     identity="user",
     category="write",
+    label="创建多维表格",
     claude_schema=_schema("base_create", "Create a new Bitable base", {
         "name": {"type": "string", "description": "Base name"},
         "folder_token": {"type": "string", "description": "Folder token (optional)"},
@@ -579,6 +599,7 @@ register(ToolDef(
     name="base_get",
     description="获取多维表格应用信息",
     identity="user",
+    label="查看多维表格信息",
     claude_schema=_schema("base_get", "Get metadata of a Bitable base", {
         "base_token": {"type": "string", "description": "Base token"},
     }, ["base_token"]),
@@ -592,6 +613,7 @@ register(ToolDef(
     name="table_list",
     description="列出多维表格中的数据表",
     identity="user",
+    label="列出数据表",
     claude_schema=_schema("table_list", "List tables in a Bitable base", {
         "base_token": {"type": "string", "description": "Base token"},
     }, ["base_token"]),
@@ -606,6 +628,7 @@ register(ToolDef(
     description="在多维表格中创建数据表",
     identity="user",
     category="write",
+    label="创建数据表",
     claude_schema=_schema("table_create", "Create a table in a Bitable base", {
         "base_token": {"type": "string", "description": "Base token"},
         "name": {"type": "string", "description": "Table name"},
@@ -622,6 +645,7 @@ register(ToolDef(
     name="field_list",
     description="列出数据表的字段",
     identity="user",
+    label="列出字段",
     claude_schema=_schema("field_list", "List fields (columns) in a Bitable table", {
         "base_token": {"type": "string", "description": "Base token"},
         "table_id": {"type": "string", "description": "Table ID or name"},
@@ -637,6 +661,7 @@ register(ToolDef(
     description="在数据表中创建字段",
     identity="user",
     category="write",
+    label="创建字段",
     claude_schema=_schema("field_create", "Create a field (column) in a Bitable table", {
         "base_token": {"type": "string", "description": "Base token"},
         "table_id": {"type": "string", "description": "Table ID or name"},
@@ -653,6 +678,7 @@ register(ToolDef(
     name="record_get",
     description="按 ID 获取多维表格记录",
     identity="user",
+    label="获取记录",
     claude_schema=_schema("record_get", "Get one or more records by ID", {
         "base_token": {"type": "string", "description": "Base token"},
         "table_id": {"type": "string", "description": "Table ID or name"},
@@ -669,6 +695,7 @@ register(ToolDef(
     name="record_list",
     description="分页列出多维表格记录",
     identity="user",
+    label="列出记录",
     claude_schema=_schema("record_list", "List records in a Bitable table (paginated)", {
         "base_token": {"type": "string", "description": "Base token"},
         "table_id": {"type": "string", "description": "Table ID or name"},
@@ -688,6 +715,7 @@ register(ToolDef(
     description="批量创建多维表格记录",
     identity="user",
     category="write",
+    label="批量创建记录",
     claude_schema=_schema("record_batch_create", "Batch create records in a Bitable table", {
         "base_token": {"type": "string", "description": "Base token"},
         "table_id": {"type": "string", "description": "Table ID or name"},
@@ -705,6 +733,7 @@ register(ToolDef(
     description="批量更新多维表格记录",
     identity="user",
     category="write",
+    label="批量更新记录",
     claude_schema=_schema("record_batch_update", "Batch update records in a Bitable table", {
         "base_token": {"type": "string", "description": "Base token"},
         "table_id": {"type": "string", "description": "Table ID or name"},
@@ -722,6 +751,7 @@ register(ToolDef(
     description="创建或更新多维表格记录",
     identity="user",
     category="write",
+    label="更新插入记录",
     claude_schema=_schema("record_upsert", "Create or update a single record (upsert)", {
         "base_token": {"type": "string", "description": "Base token"},
         "table_id": {"type": "string", "description": "Table ID or name"},
@@ -741,6 +771,7 @@ register(ToolDef(
     description="删除多维表格记录（危险操作）",
     identity="user",
     category="organize",
+    label="删除记录",
     claude_schema=_schema("record_delete", "Delete one or more records by ID (DANGEROUS)", {
         "base_token": {"type": "string", "description": "Base token"},
         "table_id": {"type": "string", "description": "Table ID or name"},
@@ -758,6 +789,7 @@ register(ToolDef(
     description="上传附件到多维表格记录",
     identity="user",
     category="write",
+    label="上传附件",
     claude_schema=_schema("record_upload_attachment", "Upload files to a Bitable attachment field", {
         "base_token": {"type": "string", "description": "Base token"},
         "table_id": {"type": "string", "description": "Table ID or name"},
@@ -777,6 +809,7 @@ register(ToolDef(
     name="view_list",
     description="列出数据表的视图",
     identity="user",
+    label="列出视图",
     claude_schema=_schema("view_list", "List views in a Bitable table", {
         "base_token": {"type": "string", "description": "Base token"},
         "table_id": {"type": "string", "description": "Table ID or name"},
@@ -791,6 +824,7 @@ register(ToolDef(
     name="data_query",
     description="用 JSON DSL 查询多维表格（聚合/过滤/排序）",
     identity="user",
+    label="数据查询",
     claude_schema=_schema("data_query", "Query Bitable data with JSON DSL (aggregation, filter, sort)", {
         "base_token": {"type": "string", "description": "Base token"},
         "dsl": {"type": "string", "description": "Query JSON DSL (LiteQuery Protocol)"},
@@ -805,6 +839,7 @@ register(ToolDef(
     name="read_sheet",
     description="读取电子表格数据",
     identity="user",
+    label="读取电子表格",
     claude_schema=_schema("read_sheet", "Read data from a spreadsheet", {
         "spreadsheet_token": {"type": "string", "description": "Spreadsheet token"},
         "sheet_id": {"type": "string", "description": "Sheet ID"},
@@ -822,6 +857,7 @@ register(ToolDef(
     description="创建电子表格",
     identity="user",
     category="write",
+    label="创建电子表格",
     claude_schema=_schema("create_sheet", "Create a spreadsheet with optional headers and data", {
         "title": {"type": "string", "description": "Spreadsheet title"},
         "headers": {"type": "string", "description": "Optional: header row as JSON array, e.g. [\"Name\",\"Age\"]"},
@@ -842,6 +878,7 @@ register(ToolDef(
     description="向电子表格追加行",
     identity="user",
     category="write",
+    label="追加表格数据",
     claude_schema=_schema("append_sheet", "Append rows to a spreadsheet", {
         "spreadsheet_token": {"type": "string", "description": "Spreadsheet token"},
         "sheet_id": {"type": "string", "description": "Sheet ID"},
@@ -861,6 +898,7 @@ register(ToolDef(
     name="find_sheet",
     description="在电子表格中查找单元格",
     identity="user",
+    label="查找表格数据",
     claude_schema=_schema("find_sheet", "Find cells in a spreadsheet by keyword", {
         "spreadsheet_token": {"type": "string", "description": "Spreadsheet token"},
         "sheet_id": {"type": "string", "description": "Sheet ID"},
@@ -883,6 +921,7 @@ register(ToolDef(
     name="get_agenda",
     description="查看用户日历日程",
     identity="user",
+    label="查看日程",
     claude_schema=_schema("get_agenda", "Get the user's calendar agenda for today or a date range", {
         "start": {"type": "string", "description": "Start datetime (ISO 8601), default today"},
         "end": {"type": "string", "description": "End datetime (ISO 8601), default today"},
@@ -899,6 +938,7 @@ register(ToolDef(
     description="创建日历事件",
     identity="user",
     category="organize",
+    label="创建日程",
     claude_schema=_schema("create_event", "Create a calendar event", {
         "summary": {"type": "string", "description": "Event title"},
         "start": {"type": "string", "description": "Start datetime (ISO 8601)"},
@@ -916,6 +956,7 @@ register(ToolDef(
     name="check_freebusy",
     description="查询用户忙闲状态",
     identity="user",
+    label="查询空闲时间",
     claude_schema=_schema("check_freebusy", "Check if a user is free or busy in a time range", {
         "user_id": {"type": "string", "description": "User ID to check"},
         "start": {"type": "string", "description": "Start datetime (ISO 8601)"},
@@ -932,6 +973,7 @@ register(ToolDef(
     description="更新日历事件（修改标题/时间/描述/参与者）",
     identity="user",
     category="organize",
+    label="更新日程",
     claude_schema=_schema("update_event", "Update a calendar event (title, time, attendees)", {
         "event_id": {"type": "string", "description": "Event ID to update"},
         "summary": {"type": "string", "description": "Optional: new event title"},
@@ -957,6 +999,7 @@ register(ToolDef(
     name="find_room",
     description="查找可用会议室",
     identity="user",
+    label="查找会议室",
     claude_schema=_schema("find_room", "Find available meeting rooms for a time slot", {
         "slot": {"type": "string", "description": "Time slot in start~end format, e.g. 2026-05-22T14:00+08:00~2026-05-22T15:00+08:00"},
         "min_capacity": {"type": "integer", "description": "Optional: minimum room capacity"},
@@ -976,6 +1019,7 @@ register(ToolDef(
     name="get_my_tasks",
     description="获取用户的任务列表",
     identity="user",
+    label="查看任务",
     claude_schema=_schema("get_my_tasks", "Get the user's task list", {}),
     build_command=lambda i: [
         "lark-cli", "task", "+get-my-tasks", "--as", "user", "--format", "json",
@@ -987,6 +1031,7 @@ register(ToolDef(
     description="创建任务",
     identity="user",
     category="organize",
+    label="创建任务",
     claude_schema=_schema("create_task", "Create a new task", {
         "summary": {"type": "string", "description": "Task summary"},
         "due": {"type": "string", "description": "Optional due datetime (ISO 8601)"},
@@ -1002,6 +1047,7 @@ register(ToolDef(
     name="search_tasks",
     description="搜索任务",
     identity="user",
+    label="搜索任务",
     claude_schema=_schema("search_tasks", "Search for tasks", {
         "query": {"type": "string", "description": "Search keyword"},
     }, ["query"]),
@@ -1016,6 +1062,7 @@ register(ToolDef(
     description="更新任务属性（标题/描述/截止时间）",
     identity="user",
     category="organize",
+    label="更新任务",
     claude_schema=_schema("update_task", "Update task attributes", {
         "task_id": {"type": "string", "description": "Task ID"},
         "summary": {"type": "string", "description": "Optional: new task title"},
@@ -1036,6 +1083,7 @@ register(ToolDef(
     description="标记任务完成",
     identity="user",
     category="organize",
+    label="完成任务",
     claude_schema=_schema("complete_task", "Mark a task as complete", {
         "task_id": {"type": "string", "description": "Task ID"},
     }, ["task_id"]),
@@ -1050,6 +1098,7 @@ register(ToolDef(
     description="给任务添加评论",
     identity="user",
     category="organize",
+    label="评论任务",
     claude_schema=_schema("comment_task", "Add a comment to a task", {
         "task_id": {"type": "string", "description": "Task ID"},
         "content": {"type": "string", "description": "Comment content"},
@@ -1066,6 +1115,7 @@ register(ToolDef(
     name="list_mail",
     description="列出/搜索邮件摘要",
     identity="user",
+    label="查看邮件",
     claude_schema=_schema("list_mail", "List or search emails (returns summaries)", {
         "query": {"type": "string", "description": "Search keyword or filter expression"},
         "max": {"type": "integer", "description": "Max results (default 20)"},
@@ -1081,6 +1131,7 @@ register(ToolDef(
     name="read_mail",
     description="读取单封邮件完整内容",
     identity="user",
+    label="读取邮件",
     claude_schema=_schema("read_mail", "Read a single email message by ID", {
         "message_id": {"type": "string", "description": "Mail message ID"},
     }, ["message_id"]),
@@ -1095,6 +1146,7 @@ register(ToolDef(
     description="撰写并发送邮件（默认存草稿，需确认后发送）",
     identity="user",
     category="communicate",
+    label="发送邮件",
     claude_schema=_schema("send_mail", "Compose and send an email. Saves as draft unless confirm_send=true.", {
         "to": {"type": "string", "description": "Recipient email(s), comma-separated"},
         "subject": {"type": "string", "description": "Email subject"},
@@ -1115,6 +1167,7 @@ register(ToolDef(
     description="回复邮件（默认存草稿，需确认后发送）",
     identity="user",
     category="communicate",
+    label="回复邮件",
     claude_schema=_schema("reply_mail", "Reply to an email. Saves as draft unless confirm_send=true.", {
         "message_id": {"type": "string", "description": "Message ID to reply to"},
         "body": {"type": "string", "description": "Reply body (HTML or plain text)"},
@@ -1133,6 +1186,7 @@ register(ToolDef(
     name="search_user",
     description="搜索通讯录用户",
     identity="user",
+    label="搜索用户",
     claude_schema=_schema("search_user", "Search for users in the company directory", {
         "query": {"type": "string", "description": "Name or keyword to search"},
     }, ["query"]),
@@ -1148,6 +1202,7 @@ register(ToolDef(
     name="search_meetings",
     description="搜索会议记录",
     identity="user",
+    label="搜索会议",
     claude_schema=_schema("search_meetings", "Search for video conference meetings", {
         "start": {"type": "string", "description": "Start datetime (ISO 8601)"},
         "end": {"type": "string", "description": "End datetime (ISO 8601)"},
@@ -1165,6 +1220,7 @@ register(ToolDef(
     description="上传文件到云空间",
     identity="user",
     category="write",
+    label="上传文件",
     claude_schema=_schema("drive_upload", "Upload a local file to Drive", {
         "file": {"type": "string", "description": "Local file path to upload"},
         "folder_token": {"type": "string", "description": "Target folder token (optional)"},
@@ -1182,6 +1238,7 @@ register(ToolDef(
     name="drive_download",
     description="从云空间下载文件",
     identity="user",
+    label="下载文件",
     claude_schema=_schema("drive_download", "Download a file from Drive", {
         "file_token": {"type": "string", "description": "File token"},
         "output": {"type": "string", "description": "Local output path (optional)"},
@@ -1197,6 +1254,7 @@ register(ToolDef(
     name="drive_export",
     description="导出云文档为本地文件（docx/pdf等）",
     identity="user",
+    label="导出文档",
     claude_schema=_schema("drive_export", "Export a cloud document to a local file format", {
         "token": {"type": "string", "description": "Document token"},
         "doc_type": {"type": "string", "description": "Source doc type: docx, sheet, bitable, mindnote"},
@@ -1216,6 +1274,7 @@ register(ToolDef(
     description="导入本地文件为云文档",
     identity="user",
     category="write",
+    label="导入文档",
     claude_schema=_schema("drive_import", "Import a local file as a cloud document", {
         "file": {"type": "string", "description": "Local file path"},
         "folder_token": {"type": "string", "description": "Target folder token"},
@@ -1235,6 +1294,7 @@ register(ToolDef(
     description="在云空间创建文件夹",
     identity="user",
     category="write",
+    label="创建文件夹",
     claude_schema=_schema("drive_create_folder", "Create a folder in Drive", {
         "name": {"type": "string", "description": "Folder name"},
         "folder_token": {"type": "string", "description": "Parent folder token (optional, root if omitted)"},
@@ -1251,6 +1311,7 @@ register(ToolDef(
     description="移动云空间文件/文件夹",
     identity="user",
     category="organize",
+    label="移动文件",
     claude_schema=_schema("drive_move", "Move a file or folder in Drive", {
         "file_token": {"type": "string", "description": "File/folder token to move"},
         "folder_token": {"type": "string", "description": "Destination folder token"},
@@ -1268,6 +1329,7 @@ register(ToolDef(
     description="删除云空间文件（危险操作）",
     identity="user",
     category="organize",
+    label="删除文件",
     claude_schema=_schema("drive_delete", "Delete a file from Drive (DANGEROUS - irreversible)", {
         "file_token": {"type": "string", "description": "File token to delete"},
         "type": {"type": "string", "description": "Object type (optional)"},
@@ -1284,6 +1346,7 @@ register(ToolDef(
     description="给云文档添加评论",
     identity="user",
     category="write",
+    label="文档评论",
     claude_schema=_schema("drive_comment", "Add a comment to a document in Drive", {
         "doc": {"type": "string", "description": "Document URL or token"},
         "content": {"type": "string", "description": "Comment content"},
@@ -1298,6 +1361,7 @@ register(ToolDef(
     name="drive_inspect",
     description="查看云空间文件元信息（类型/权限/token）",
     identity="user",
+    label="查看文件信息",
     claude_schema=_schema("drive_inspect", "Inspect a Drive file to get metadata, type, and token", {
         "url": {"type": "string", "description": "File URL or token"},
         "type": {"type": "string", "description": "Object type hint (optional)"},
@@ -1315,6 +1379,7 @@ register(ToolDef(
     name="wiki_list_spaces",
     description="列出知识库空间",
     identity="user",
+    label="列出知识库",
     claude_schema=_schema("wiki_list_spaces", "List available wiki spaces", {
         "page_size": {"type": "integer", "description": "Results per page (optional)"},
     }, []),
@@ -1330,6 +1395,7 @@ register(ToolDef(
     description="在知识库中创建节点",
     identity="user",
     category="write",
+    label="创建知识库节点",
     claude_schema=_schema("wiki_create_node", "Create a new node in a wiki space", {
         "space_id": {"type": "string", "description": "Wiki space ID"},
         "title": {"type": "string", "description": "Node title"},
@@ -1348,6 +1414,7 @@ register(ToolDef(
     name="wiki_get_node",
     description="获取知识库节点详情",
     identity="user",
+    label="查看知识库节点",
     claude_schema=_schema("wiki_get_node", "Get details of a wiki node", {
         "token": {"type": "string", "description": "Node token"},
         "space_id": {"type": "string", "description": "Wiki space ID (optional)"},
@@ -1363,6 +1430,7 @@ register(ToolDef(
     name="wiki_list_nodes",
     description="列出知识库节点列表",
     identity="user",
+    label="列出知识库节点",
     claude_schema=_schema("wiki_list_nodes", "List nodes in a wiki space or under a parent node", {
         "space_id": {"type": "string", "description": "Wiki space ID"},
         "parent_node_token": {"type": "string", "description": "Parent node token (optional, lists root if omitted)"},
@@ -1379,6 +1447,7 @@ register(ToolDef(
     description="移动知识库节点",
     identity="user",
     category="organize",
+    label="移动知识库节点",
     claude_schema=_schema("wiki_move", "Move a wiki node to a different location", {
         "node_token": {"type": "string", "description": "Node token to move"},
         "target_space_id": {"type": "string", "description": "Target wiki space ID"},
@@ -1399,6 +1468,7 @@ register(ToolDef(
     description="创建 Markdown 云文档",
     identity="user",
     category="write",
+    label="创建 Markdown",
     claude_schema=_schema("create_markdown", "Create a new Markdown document in Drive", {
         "content": {"type": "string", "description": "Markdown content"},
         "name": {"type": "string", "description": "Document name"},
@@ -1415,6 +1485,7 @@ register(ToolDef(
     name="read_markdown",
     description="读取 Markdown 云文档原始内容",
     identity="user",
+    label="读取 Markdown",
     claude_schema=_schema("read_markdown", "Fetch the raw Markdown content of a document", {
         "file_token": {"type": "string", "description": "Markdown file token"},
     }, ["file_token"]),
@@ -1429,6 +1500,7 @@ register(ToolDef(
     description="覆写 Markdown 云文档全部内容",
     identity="user",
     category="write",
+    label="覆写 Markdown",
     claude_schema=_schema("overwrite_markdown", "Overwrite the entire content of a Markdown document", {
         "file_token": {"type": "string", "description": "Markdown file token"},
         "content": {"type": "string", "description": "New Markdown content"},
@@ -1444,6 +1516,7 @@ register(ToolDef(
     description="局部替换 Markdown 云文档内容（按模式匹配替换）",
     identity="user",
     category="write",
+    label="修改 Markdown",
     claude_schema=_schema("patch_markdown", "Patch a Markdown document by replacing matched text", {
         "file_token": {"type": "string", "description": "Markdown file token"},
         "pattern": {"type": "string", "description": "Text or regex pattern to match"},
@@ -1465,6 +1538,7 @@ register(ToolDef(
     description="创建演示文稿",
     identity="user",
     category="write",
+    label="创建演示文稿",
     claude_schema=_schema("create_slides", "Create a new slide deck", {
         "title": {"type": "string", "description": "Presentation title"},
         "slides": {"type": "string", "description": "Slides content (JSON array or structured text)"},

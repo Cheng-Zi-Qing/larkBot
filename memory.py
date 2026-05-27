@@ -1143,6 +1143,7 @@ register(ToolDef(
     description="搜索历史对话记忆",
     identity="",
     category="research",
+    label="回忆记忆",
     claude_schema=_schema(
         "recall_memory",
         "搜索历史对话记忆。当用户提到过去的对话、之前做过的事、或需要历史上下文时调用。"

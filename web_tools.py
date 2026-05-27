@@ -82,6 +82,7 @@ register(ToolDef(
     description="搜索互联网信息",
     identity="",
     category="research",
+    label="搜索网络",
     claude_schema=_schema("web_search", "Search the web for current information on any topic", {
         "query": {"type": "string", "description": "Search query"},
         "max_results": {"type": "integer", "description": "Number of results (default 5)"},
@@ -145,6 +146,7 @@ register(ToolDef(
     description="读取网页正文内容",
     identity="",
     category="research",
+    label="读取网页",
     claude_schema=_schema("web_read", "Fetch and extract clean text content from a URL", {
         "url": {"type": "string", "description": "URL to read"},
     }, ["url"]),
@@ -197,6 +199,7 @@ register(ToolDef(
     description="深度研究一个主题（搜索+总结）",
     identity="",
     category="research",
+    label="深度调研",
     claude_schema=_schema("web_research", "Research a topic in depth — searches multiple sources and provides a comprehensive summary", {
         "topic": {"type": "string", "description": "Topic or question to research"},
         "max_results": {"type": "integer", "description": "Number of sources to analyze (default 8)"},
