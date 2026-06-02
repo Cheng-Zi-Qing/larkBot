@@ -1,6 +1,7 @@
 """bot/consumer.py — lark-cli event consumer 进程管理。"""
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
@@ -20,6 +21,7 @@ def start_event_consumer() -> subprocess.Popen:
         stdin=subprocess.PIPE,
         text=True,
         bufsize=1,
+        preexec_fn=os.setsid,
     )
 
     ready = False
@@ -50,9 +52,19 @@ def start_event_consumer() -> subprocess.Popen:
 
 
 def shutdown_consumer(proc: subprocess.Popen) -> None:
-    """优雅关闭 consumer 进程。"""
+    """优雅关闭 consumer 进程及其子进程。"""
+    import os
+    import signal
+    try:
+        # Kill entire process group if possible
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
     proc.stdin.close()
     try:
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
-        proc.kill()
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            proc.kill()

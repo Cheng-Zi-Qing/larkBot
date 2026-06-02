@@ -1,6 +1,7 @@
 """bot/router.py — 消息路由：意图分类、任务管理、agent 调用。"""
 from __future__ import annotations
 
+import re
 import sys
 import threading
 import uuid
@@ -10,8 +11,12 @@ from dataclasses import dataclass
 import agent
 import config
 import logger
+from agent.planner import _persisted_plans, _plans_lock, clear_persisted_plan
 from bot.transport import send_reply, dedup_check
 from bot import commands, callbacks
+
+_CONFIRM_KEYWORDS = ("执行", "确认", "好的", "可以", "继续", "没问题", "ok", "yes", "go")
+_CANCEL_KEYWORDS = ("取消", "算了", "不要了", "不用了", "不做了", "重来", "cancel", "stop")
 
 _INTENT_PROMPT = (
     "你是一个意图分类器。用户之前发了一条消息启动了任务，现在又发了新消息。\n"
@@ -77,10 +82,13 @@ def handle_message(event: dict):
     if not content:
         return
 
-    # Deduplicate: use event_id first, fallback to message_id
-    dedup_key = event_id or message_id
-    if dedup_check(dedup_key):
-        print(f"[BOT] [{request_id}] Dedup skip: {dedup_key}", file=sys.stderr)
+    # Deduplicate: check BOTH message_id and event_id.
+    # message_id is stable across Feishu re-deliveries; event_id changes per delivery.
+    if message_id and dedup_check(message_id):
+        print(f"[BOT] [{request_id}] Dedup skip (msg): {message_id}", file=sys.stderr)
+        return
+    if event_id and dedup_check(event_id):
+        print(f"[BOT] [{request_id}] Dedup skip (evt): {event_id}", file=sys.stderr)
         return
 
     # Command handling
@@ -96,6 +104,11 @@ def handle_message(event: dict):
         active = _active_tasks.get(chat_id)
 
     if active and not active.cancel_event.is_set():
+        # Duplicate delivery: same content as running task — skip silently
+        if content.strip() == active.original_message.strip():
+            print(f"[BOT] [{request_id}] Duplicate content skip (same as active task)", file=sys.stderr)
+            return
+
         # There's a running task — classify intent
         intent = classify_intent(active.original_message, content)
         print(f"[BOT] [{request_id}] Intent: {intent} (old: {active.original_message[:40]})", file=sys.stderr)
@@ -121,14 +134,57 @@ def handle_message(event: dict):
             return
 
         elif intent == "new_task":
+            # Guard: very short messages are unlikely to be genuine new tasks
+            # — more likely noise or casual acknowledgments. Downgrade to status.
+            # CJK characters carry more meaning per char, so use a lower threshold.
+            _short_threshold = 3 if re.search(r"[一-鿿぀-ヿ가-힯]", content) else 10
+            if len(content.strip()) < _short_threshold:
+                send_reply(chat_id, f"🔄 正在执行中: {active.original_message[:50]}\n请稍候，完成后会通知你。")
+                return
             active.cancel_event.set()
             send_reply(chat_id, f"⏹️ 已取消旧任务: {active.original_message[:50]}\n▶️ 开始新任务")
             _run_task(request_id, chat_id, sender_id, content, message_id)
             return
 
-    # No active task — check if resuming after plan confirmation
-    has_pending_plan = bool(agent.history.get(chat_id))
-    _run_task(request_id, chat_id, sender_id, content, message_id, clear_history=not has_pending_plan)
+    # No active task — check if there's a pending unconfirmed plan awaiting user response
+    with _plans_lock:
+        pending = _persisted_plans.get(chat_id)
+        pending_unconfirmed = pending and not pending.get("confirmed", True)
+
+    if pending_unconfirmed:
+        content_lower = content.strip().lower()
+        if any(kw in content_lower for kw in _CONFIRM_KEYWORDS):
+            # User confirmed — mark plan as confirmed, resume agent loop
+            with _plans_lock:
+                if chat_id in _persisted_plans:
+                    _persisted_plans[chat_id]["confirmed"] = True
+            _run_task(request_id, chat_id, sender_id, content, message_id, clear_history=False)
+        elif any(kw in content_lower for kw in _CANCEL_KEYWORDS):
+            # User cancelled — clear plan and history
+            clear_persisted_plan(chat_id)
+            agent.history.pop(chat_id, None)
+            send_reply(chat_id, "⏹️ 已取消计划，你可以重新描述需求。")
+        else:
+            # User is supplementing/modifying the plan — treat as adjustment
+            clear_persisted_plan(chat_id)
+            # Retrieve original task from history to merge with supplement
+            original = ""
+            chat_history = agent.history.get(chat_id)
+            if chat_history:
+                for msg in chat_history:
+                    if msg.get("role") == "user":
+                        original = msg.get("content", "")
+                        break
+            if original:
+                merged = f"{original}\n\n[补充要求] {content}"
+            else:
+                merged = content
+            send_reply(chat_id, f"📝 收到调整要求，重新执行。")
+            _run_task(request_id, chat_id, sender_id, merged, message_id)
+        return
+
+    # No pending plan — always start fresh
+    _run_task(request_id, chat_id, sender_id, content, message_id, clear_history=True)
 
 
 def _run_task(request_id: str, chat_id: str, sender_id: str, content: str, message_id: str,
@@ -169,8 +225,8 @@ def _process_message(
 
     try:
         reply = agent.run(request_id, chat_id, content, sender_id=sender_id,
-                          on_progress=callbacks.make_progress_cb(chat_id),
-                          on_plan=callbacks.make_plan_cb(chat_id),
+                          on_progress=callbacks.make_progress_cb(chat_id, cancel_event),
+                          on_plan=callbacks.make_plan_cb(chat_id, cancel_event),
                           cancel_event=cancel_event)
 
         # If cancelled mid-run, don't send reply — new task owns the chat now

@@ -27,9 +27,13 @@ cmd_start() {
         exit 1
     fi
 
+    # Kill any orphaned consumers before starting
+    pkill -f "lark-cli event consume im.message.receive_v1" 2>/dev/null || true
+    sleep 0.5
+
     echo "Starting $APP_NAME..."
     cd "$ROOT_DIR"
-    nohup python3 bot.py >> "$LOG_FILE" 2>&1 &
+    nohup python3 -m bot >> "$LOG_FILE" 2>&1 &
     local pid=$!
     echo "$pid" > "$PID_FILE"
     sleep 1
@@ -48,6 +52,8 @@ cmd_stop() {
     if ! _is_running; then
         echo "$APP_NAME is not running"
         rm -f "$PID_FILE"
+        # Kill any orphaned lark-cli event consumers
+        pkill -f "lark-cli event consume im.message.receive_v1" 2>/dev/null || true
         return
     fi
 
@@ -55,13 +61,16 @@ cmd_stop() {
     pid=$(_pid)
     echo "Stopping $APP_NAME (PID $pid)..."
 
-    kill "$pid" 2>/dev/null || true
+    # Kill the entire process group (parent + child lark-cli)
+    kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
 
     local i=0
     while [ $i -lt 10 ]; do
         if ! kill -0 "$pid" 2>/dev/null; then
             echo "$APP_NAME stopped"
             rm -f "$PID_FILE"
+            # Cleanup any remaining lark-cli consumers
+            pkill -f "lark-cli event consume im.message.receive_v1" 2>/dev/null || true
             return
         fi
         sleep 1
@@ -70,6 +79,7 @@ cmd_stop() {
 
     echo "Force killing $APP_NAME..."
     kill -9 "$pid" 2>/dev/null || true
+    pkill -9 -f "lark-cli event consume im.message.receive_v1" 2>/dev/null || true
     rm -f "$PID_FILE"
     echo "$APP_NAME killed"
 }

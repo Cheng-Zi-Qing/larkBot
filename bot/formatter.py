@@ -95,11 +95,16 @@ def format_progress(
     return "\n".join(lines)
 
 
-def format_plan(steps: list[str]) -> str:
+def format_plan(steps: list[str], auto_confirmed: bool = False) -> str:
     """格式化计划展示文本。"""
-    lines = ["📋 执行计划:"]
+    if auto_confirmed:
+        lines = ["📋 执行计划（已自动开始）:"]
+    else:
+        lines = ["📋 执行计划:"]
     for i, step in enumerate(steps, 1):
         lines.append(f"{i}. {step}")
+    if auto_confirmed:
+        lines.append("\n⏳ 正在自动处理中，每步进展会实时通知。")
     return "\n".join(lines)
 
 

@@ -243,7 +243,7 @@ def _handle_plan_submit(
 
     # Show plan to user
     if on_plan and plan_state.steps:
-        on_plan(plan_state.steps)
+        on_plan(plan_state.steps, auto_confirmed=plan_state.is_confirmed())
 
     # Decision
     if plan_state.is_confirmed():

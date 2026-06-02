@@ -56,6 +56,7 @@ class PlanState:
         """
         self.steps = steps
         self.total_steps = len(steps)
+        self.step_counter = 0
         self.has_write_steps = _plan_has_write_steps(steps)
 
         if not self.has_write_steps or _user_pre_confirmed(messages):

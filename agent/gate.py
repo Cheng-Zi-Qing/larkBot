@@ -14,12 +14,12 @@ class RoundType(Enum):
 
 
 def _is_read_only(tool_name: str) -> bool:
-    """Check if a tool is safe to execute without a plan (read or research)."""
+    """Check if a tool is safe to execute without a plan (read-only, no external cost)."""
     td = TOOL_REGISTRY.get(tool_name)
     if td is None:
         # Unknown tools (e.g. submit_plan registered late) — safe to proceed
         return True
-    return td.category in ("read", "research")
+    return td.category == "read"
 
 
 def classify_round(
@@ -33,7 +33,8 @@ def classify_round(
 
     Priority (high to low):
     1. PLAN_SUBMIT — submit_plan present and plan not yet confirmed
-    2. PLAN_FIRST_BLOCK — no confirmed plan and non-read-only tools present
+    2. PLAN_FIRST_BLOCK — no confirmed plan and non-read-only tools present,
+       OR already executed 2+ tool rounds without a plan (even read-only)
     3. HITL_PAUSE — audit tool present and not pre-confirmed
     4. TOOL_EXEC — default
     """
@@ -48,6 +49,11 @@ def classify_round(
     non_plan_calls = [tc for tc in tool_calls if tc.name != "submit_plan"]
     all_read_only = all(_is_read_only(tc.name) for tc in non_plan_calls)
     if plan_is_new and not has_plan_call and non_plan_calls and not all_read_only:
+        return RoundType.PLAN_FIRST_BLOCK
+
+    # Priority 2b: already executed 2+ rounds without plan → block even read-only
+    # This enforces "3步以上操作必须先提交计划" for all multi-step tasks
+    if plan_is_new and not has_plan_call and non_plan_calls and plan_state.step_counter >= 2:
         return RoundType.PLAN_FIRST_BLOCK
 
     # Priority 3: audit tool present and not pre-confirmed
